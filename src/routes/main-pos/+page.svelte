@@ -273,6 +273,44 @@
 		order_price?: number;
 	};
 
+	let totalPax = 1;
+	let seniorCount = 0;
+	let seniorDiscount = 0;
+	let applyServiceCharge = true; // Add this variable to control service charge application
+
+	// Function to toggle service charge
+	function toggleServiceCharge() {
+		applyServiceCharge = !applyServiceCharge;
+		console.log('Service charge toggled:', applyServiceCharge);
+	}
+
+	// Add reactive statement to log when service charge changes
+	$: {
+		if (applyServiceCharge !== undefined) {
+			console.log('Service charge state:', applyServiceCharge);
+		}
+	}
+
+	function calculateSeniorDiscount() {
+		// Ensure totalPax is a number and at least 1
+		totalPax = Math.max(0, parseInt(totalPax.toString()) || 0);
+		// Ensure seniorCount is a number and at least 0
+		seniorCount = Math.max(0, parseInt(seniorCount.toString()) || 0);
+
+		// Calculate per person amount
+		const perPersonAmount = totalOrderedItemsPrice / totalPax;
+		
+		// Calculate senior discount (20% of their portion)
+		seniorDiscount = (perPersonAmount * 0.20) * seniorCount;
+	}
+
+	// Add reactive statement to recalculate discount when total price changes
+	$: {
+		if (totalOrderedItemsPrice) {
+			calculateSeniorDiscount();
+		}
+	}
+
 	function handlePlaceOrder() {
 		// Check if there are ordered items before opening the receipt popup
 		if (orderedItems.length === 0) {
@@ -280,11 +318,12 @@
 			return; // Exit the function if no items are ordered
 		}
 
-		// Calculate total without VAT
+		// Calculate total with all discounts
 		const subtotal = Math.round(Number(totalOrderedItemsPrice)) || 0;
-		const serviceCharge = Math.round(subtotal * 0.05);
-		const discount = Math.round((subtotal * (Number(voucherDiscount) || 0)) / 100);
-		const totalCost = Math.round(subtotal - discount + serviceCharge);
+		const serviceCharge = applyServiceCharge ? Math.round(subtotal * 0.05) : 0;
+		const voucherDiscountAmount = Math.round((subtotal * (Number(voucherDiscount) || 0)) / 100);
+		const seniorDiscountAmount = Math.round(seniorDiscount);
+		const totalCost = Math.round(subtotal - voucherDiscountAmount - seniorDiscountAmount + serviceCharge);
 		const paymentAmount = Math.round(Number(payment)) || 0;
 
 		console.log('Debug - Total Cost:', totalCost); // Debug log
@@ -342,6 +381,7 @@
 				totalPax: totalPax,
 				seniorCount: seniorCount,
 				seniorDiscount: seniorDiscount,
+				applyServiceCharge: applyServiceCharge,
 				tableNumber: selectedCard?.table || 'Take Out'
 			};
 
@@ -620,31 +660,6 @@
 			alert('Error printing test receipt: ' + errorMessage);
 		}
 	}
-
-	// Add these variables near the top of the script section with other variable declarations
-	let totalPax = 1;
-	let seniorCount = 0;
-	let seniorDiscount = 0;
-
-	// Add this function in the script section
-	function calculateSeniorDiscount() {
-		if (totalPax < 1) totalPax = 1;
-		if (seniorCount > totalPax) seniorCount = totalPax;
-		if (seniorCount < 0) seniorCount = 0;
-
-		// Calculate per person amount
-		const perPersonAmount = totalOrderedItemsPrice / totalPax;
-		
-		// Calculate senior discount (20% of their portion)
-		seniorDiscount = (perPersonAmount * 0.20) * seniorCount;
-	}
-
-	// Add reactive statement to recalculate discount when total price changes
-	$: {
-		if (totalOrderedItemsPrice) {
-			calculateSeniorDiscount();
-		}
-	}
 </script>
 
 <div class="flex h-screen">
@@ -784,7 +799,7 @@
 			</div>
 
 			{#if isCardPopupVisible}
-				<div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 h-auto">
+				<div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
 					<div class="w-full max-w-md rounded-lg bg-white p-6 shadow-lg max-h-[90vh] overflow-y-auto">
 						<h2 class="mb-4 text-center text-2xl font-bold text-gray-800">
 							Table {selectedCard.table}
@@ -940,62 +955,107 @@
 						Redeem
 					</button>
 				</div>
-				<!-- Add Senior/PWD Discount Fields -->
+				<!-- Enhanced Senior/PWD Discount Fields -->
 				<div class="mb-4 flex w-full items-center justify-between border-b pb-2">
 					<div class="flex items-center w-1/2 mr-2">
 						<p class="text-sm font-semibold text-gray-700 mr-2">Total PAX:</p>
 						<input
-							type="number"
+							type="text"
 							bind:value={totalPax}
-							min="1"
 							class="text-sm font-bold text-gray-800 w-16 border rounded px-2 py-1"
-							on:input={calculateSeniorDiscount}
+							on:input={() => {
+								// Capture the input even if it's not a number yet
+								calculateSeniorDiscount();
+							}}
+							on:blur={() => {
+								// On blur, ensure it's at least 1
+								if (!totalPax || totalPax < 1) totalPax = 1;
+								calculateSeniorDiscount();
+							}}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									if (!totalPax || totalPax < 1) totalPax = 1;
+									calculateSeniorDiscount();
+								}
+							}}
 						/>
 					</div>
 					<div class="flex items-center w-1/2">
 						<p class="text-sm font-semibold text-gray-700 mr-2">Senior/PWD:</p>
 						<input
-							type="number"
+							type="text"
 							bind:value={seniorCount}
-							min="0"
-							max={totalPax}
 							class="text-sm font-bold text-gray-800 w-16 border rounded px-2 py-1"
-							on:input={calculateSeniorDiscount}
+							on:input={() => {
+								// Capture the input even if it's not a number yet
+								calculateSeniorDiscount();
+							}}
+							on:blur={() => {
+								// On blur, ensure it's at least 0
+								if (!seniorCount || seniorCount < 0) seniorCount = 0;
+								calculateSeniorDiscount();
+							}}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									if (!seniorCount || seniorCount < 0) seniorCount = 0;
+									calculateSeniorDiscount();
+								}
+							}}
 						/>
 					</div>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Subtotal:</p>
-					<p class="text-sm font-bold text-gray-800">P{Math.round(totalOrderedItemsPrice)}</p>
+					<button 
+						class="flex items-center text-left focus:outline-none" 
+						on:click={toggleServiceCharge}
+					>
+						<div class={`w-5 h-5 mr-2 border rounded flex items-center justify-center ${applyServiceCharge ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
+							{#if applyServiceCharge}
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+								</svg>
+							{/if}
+						</div>
+						<span class="text-sm font-semibold text-gray-700">Service Charge (5%)</span>
+					</button>
+					<p class="text-sm font-bold text-gray-800">₱{applyServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
 					<p class="text-sm font-semibold text-gray-700">Voucher Discount:</p>
-					<p class="text-sm font-bold text-gray-800">P{Math.round(totalOrderedItemsPrice * voucherDiscount / 100)}</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice * voucherDiscount / 100)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount:</p>
-					<p class="text-sm font-bold text-gray-800">P{Math.round(seniorDiscount)}</p>
-				</div>
-				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Service Charge (5%):</p>
-					<p class="text-sm font-bold text-gray-800">P{Math.round(totalOrderedItemsPrice * 0.05)}</p>
+					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount ({seniorCount}):</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(seniorDiscount)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
 					<p class="text-sm font-semibold text-gray-700">Total:</p>
-					<p class="text-sm font-bold text-gray-800">P{Math.round(
-						totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (totalOrderedItemsPrice * 0.05)
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(
+						totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (applyServiceCharge ? totalOrderedItemsPrice * 0.05 : 0)
 					)}</p>
 				</div>
 				<div class="flex justify-between">
 					<p class="text-sm">Amount Paid:</p>
-					<span class="text-sm">P{Math.round(parseFloat(payment) || 0)}</span>
+					<span class="text-sm">₱{Math.round(parseFloat(payment) || 0)}</span>
 				</div>
 				<div class="flex justify-between">
 					<p class="text-sm">Change:</p>
 					<span class="text-sm">
-						₱{Math.round(Math.max(0, (parseFloat(payment) || 0) - 
-							(totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (totalOrderedItemsPrice * 0.05))
-						))}
+						₱{(() => {
+							// Calculate total with all discounts
+							const totalCost = Math.round(
+								totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (applyServiceCharge ? totalOrderedItemsPrice * 0.05 : 0)
+							);
+							const paymentAmount = Math.round(parseFloat(payment) || 0);
+							
+							// If payment and total are equal (or very close), return 0
+							if (Math.abs(paymentAmount - totalCost) <= 1) {
+								return 0;
+							}
+							
+							// Otherwise calculate regular change
+							return Math.max(0, paymentAmount - totalCost);
+						})()}
 					</span>
 				</div>
 			</div>
@@ -1012,11 +1072,12 @@
 							// Store in localStorage to maintain compatibility with other functions
 							localStorage.setItem('payment', payment);
 							
-							// Calculate total without VAT
+							// Calculate total with all discounts
 							const subtotal = Math.round(Number(totalOrderedItemsPrice)) || 0;
-							const serviceCharge = Math.round(subtotal * 0.05);
-							const discount = Math.round((subtotal * (Number(voucherDiscount) || 0)) / 100);
-							const totalCost = Math.round(subtotal - discount + serviceCharge);
+							const serviceCharge = applyServiceCharge ? Math.round(subtotal * 0.05) : 0;
+							const voucherDiscountAmount = Math.round((subtotal * (Number(voucherDiscount) || 0)) / 100);
+							const seniorDiscountAmount = Math.round(seniorDiscount);
+							const totalCost = Math.round(subtotal - voucherDiscountAmount - seniorDiscountAmount + serviceCharge);
 							const paymentAmount = Math.round(Number(payment)) || 0;
 
 							console.log('Debug - Total Cost:', totalCost); // Debug log
@@ -1220,6 +1281,7 @@
 			<p class="text-lg">Cashier Name: {cashierName}</p>
 			<p class="text-lg">Receipt Number: {orderNumber}</p>
 			<p class="text-lg">Table Number: {selectedCard?.table || 'Take Out'}</p>
+			<p class="text-lg">Total PAX: {totalPax}</p>
 
 			<div class="mt-4">
 				<div class="flex justify-between font-semibold">
@@ -1271,17 +1333,33 @@
 					<p class="text-sm font-bold text-gray-800">₱{(totalOrderedItemsPrice * 0.12).toFixed(2)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Total Discount:</p>
+					<button 
+						class="flex items-center text-left focus:outline-none" 
+						on:click={toggleServiceCharge}
+					>
+						<div class={`w-5 h-5 mr-2 border rounded flex items-center justify-center ${applyServiceCharge ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
+							{#if applyServiceCharge}
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+								</svg>
+							{/if}
+						</div>
+						<span class="text-sm font-semibold text-gray-700">Service Charge (5%)</span>
+					</button>
+					<p class="text-sm font-bold text-gray-800">₱{applyServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Voucher Discount:</p>
 					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice * voucherDiscount / 100)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Service Charge (5%):</p>
-					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice * 0.05)}</p>
+					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount ({seniorCount}):</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(seniorDiscount)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
 					<p class="text-sm font-semibold text-gray-700">Total:</p>
 					<p class="text-sm font-bold text-gray-800">₱{Math.round(
-						totalOrderedItemsPrice * (1 - voucherDiscount / 100) + (totalOrderedItemsPrice * 0.05)
+						totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (applyServiceCharge ? totalOrderedItemsPrice * 0.05 : 0)
 					)}</p>
 				</div>
 				<div class="flex justify-between">
@@ -1291,9 +1369,21 @@
 				<div class="flex justify-between">
 					<p class="text-sm">Change:</p>
 					<span class="text-sm">
-						₱{Math.round(Math.max(0, (parseFloat(payment) || 0) - 
-							(totalOrderedItemsPrice * (1 - voucherDiscount / 100) + (totalOrderedItemsPrice * 0.05))
-						))}
+						₱{(() => {
+							// Calculate total with all discounts
+							const totalCost = Math.round(
+								totalOrderedItemsPrice * (1 - voucherDiscount / 100) - seniorDiscount + (applyServiceCharge ? totalOrderedItemsPrice * 0.05 : 0)
+							);
+							const paymentAmount = Math.round(parseFloat(payment) || 0);
+							
+							// If payment and total are equal (or very close), return 0
+							if (Math.abs(paymentAmount - totalCost) <= 1) {
+								return 0;
+							}
+							
+							// Otherwise calculate regular change
+							return Math.max(0, paymentAmount - totalCost);
+						})()}
 					</span>
 				</div>
 			</div>
