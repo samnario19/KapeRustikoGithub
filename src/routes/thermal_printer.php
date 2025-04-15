@@ -26,7 +26,7 @@ function printThermalReceipt($orderData) {
         }
 
         // Connect to the thermal printer
-        $connector = new WindowsPrintConnector("thermal2");
+        $connector = new WindowsPrintConnector("thermal1");
         $printer = new Printer($connector);
 
         // Initialize printer settings

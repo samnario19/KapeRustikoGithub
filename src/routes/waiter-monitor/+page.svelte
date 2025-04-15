@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import Card from '../components/card.svelte';
 	import Sidebar from '../sidebar/+page.svelte';
 	import { orderedItemsStore } from '../../stores/orderedItemsStore';
@@ -34,8 +34,6 @@
 	let waiterCode = ''; // Variable to store waiter code
 	let waiterName = ''; // Variable to store waiter name
 	let change = 0; // Set default change to 0
-
-	let isConfirmVoidVisible = false; // State for confirmation modal
 
 	// Add this at the top with other let declarations
 	let deliveredItems = new Map();
@@ -1350,45 +1348,6 @@
 	// First, add a new variable to store special instructions
 	let specialInstructions = '';
 
-	async function voidQueuedOrders() {
-		if (selectedTableDetails.orders.length > 0) {
-			for (const order of selectedTableDetails.orders) {
-				try {
-					const response = await fetch(`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=voidQueuedOrder&receipt_number=${order.receipt_number}`, {
-						method: 'DELETE',
-					});
-
-					const data = await response.json();
-					if (data.success) {
-						console.log(`Successfully voided order: ${order.receipt_number}`);
-						window.location.reload(); // Reload the window after successful void
-					} else {
-						console.error(`Failed to void order: ${data.message}`);
-					}
-				} catch (error) {
-					console.error('Error voiding order:', error);
-				}
-			}
-			// Optionally, refresh the queued orders after voiding
-			await fetchQueuedOrders();
-		} else {
-			console.log('No orders to void.');
-		}
-	}
-
-	function confirmVoidOrders() {
-		isConfirmVoidVisible = true; // Show confirmation modal
-	}
-
-	function voidOrdersConfirmed() {
-		voidQueuedOrders(); // Call the original void function
-		isConfirmVoidVisible = false; // Hide confirmation modal
-	}
-
-	function closeConfirmVoid() {
-		isConfirmVoidVisible = false; // Hide confirmation modal
-	}
-
 	// Add this function to handle marking all orders in the modal as done
 	async function markAllOrdersAsDone() {
 		try {
@@ -1435,52 +1394,6 @@
 		} catch (error) {
 			console.error('Error marking orders as delivered:', error);
 			showAlert('Error marking orders as delivered', 'error');
-		}
-	}
-
-	// Add this function near other async functions
-	async function voidIndividualItem(receiptNumber: string, itemIndex: number) {
-		try {
-			const response = await fetch(
-				`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=voidIndividualItem&receipt_number=${receiptNumber}&item_index=${itemIndex}`,
-				{
-					method: 'DELETE',
-					headers: {
-						'Content-Type': 'application/json'
-					}
-				}
-			);
-
-			const data = await response.json();
-			
-			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}, message: ${data.message || 'Unknown error'}`);
-			}
-
-			if (data.success) {
-				showAlert(`Item voided successfully`, 'success');
-				
-				// Remove the voided item from selectedTableItems
-				selectedTableItems = selectedTableItems.filter((item, index) => 
-					!(item.receipt_number === receiptNumber && index === itemIndex)
-				);
-				
-				// If no more items for this receipt, remove it from the display
-				if (!selectedTableItems.some(item => item.receipt_number === receiptNumber)) {
-					// If no items remain at all, close the modal
-					if (selectedTableItems.length === 0) {
-						closeTableDetailsModal();
-					}
-				}
-				
-				// Refresh the queued orders to update the display
-				await fetchQueuedOrders();
-			} else {
-				throw new Error(data.message || 'Failed to void item');
-			}
-		} catch (error) {
-			console.error('Error voiding item:', error);
-			showAlert(`Error voiding item: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 		}
 	}
 
@@ -2194,12 +2107,6 @@
                                                                 class="h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
                                                                 aria-label="Mark as delivered"
                                                             />
-                                                            <button
-                                                                on:click={() => voidIndividualItem(receiptNumber, itemIndex)}
-                                                                class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs transition duration-200"
-                                                            >
-                                                                Void
-                                                            </button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -2233,36 +2140,6 @@
                     on:click={closeTableDetailsModal}
                 >
                     Confirm
-                </button>
-                <button 
-                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded focus:outline-none focus:shadow-outline transition duration-200"
-                    on:click={confirmVoidOrders}
-                >
-                    Void Que Orders
-                </button>
-            </div>
-        </div>
-    </div>
-{/if}
-
-<!-- Confirmation Modal -->
-{#if isConfirmVoidVisible}
-    <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 class="text-lg font-bold mb-4">Confirm Void</h2>
-            <p class="mb-4">Are you sure you want to void this order?</p>
-            <div class="flex justify-between">
-                <button 
-                    on:click={voidOrdersConfirmed} 
-                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded focus:outline-none transition duration-200"
-                >
-                    Yes, Void
-                </button>
-                <button 
-                    on:click={closeConfirmVoid} 
-                    class="flex-1 bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 rounded focus:outline-none transition duration-200"
-                >
-                    Cancel
                 </button>
             </div>
         </div>
