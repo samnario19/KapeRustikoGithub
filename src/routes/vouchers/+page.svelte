@@ -183,7 +183,7 @@
         </button>
 
         {#if showPopup}
-            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
                 <div class="bg-white p-6 rounded shadow-lg">
                     <h2 class="font-bold text-lg">Add Voucher</h2>
                     <form on:submit|preventDefault={addVoucher}>
@@ -200,7 +200,7 @@
 
         <!-- Confirmation Popup -->
         {#if isDeleteConfirmationVisible}
-            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
+            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
                 <div class="bg-white p-6 rounded shadow-lg">
                     <h2 class="text-lg font-bold">Are you sure you want to delete this voucher?</h2>
                     <div class="mt-4 flex justify-between">
@@ -213,7 +213,7 @@
 
         <!-- Edit Popup -->
         {#if isEditPopupVisible}
-            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+            <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
                 <div class="bg-white p-6 rounded shadow-lg">
                     <h2 class="font-bold text-lg">Edit Voucher</h2>
                     <form on:submit|preventDefault={editVoucher}>
@@ -234,21 +234,21 @@
                 <p class="text-center text-gray-600 col-span-full">No vouchers found</p>
             {:else}
                 {#each vouchers as voucher}
-                    <div class="flex border border-gray-300 rounded-lg shadow-lg overflow-hidden {new Date(voucher.voucher_deadline) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'opacity-50 pointer-events-none' : '' }">
-                    <div class="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-500 text-white p-6 flex items-center justify-center">
-                        <h2 class="font-bold text-5xl">{voucher.voucher_discount}% OFF</h2>
-                    </div>
-                    <div class="ml-4 p-6 bg-gray-100 flex-1 rounded-lg shadow-md transition-transform transform hover:scale-105">
-                        <h3 class="font-bold text-xl text-gray-800">{voucher.voucher_code}</h3>
-                        <p class="text-sm text-gray-600 mb-2">Limited Redemptions; Valid through {formatDate(voucher.voucher_deadline)}</p>
-                        {#if new Date(voucher.voucher_deadline) >= new Date(new Date().setHours(0, 0, 0, 0))}
-                            <p class="text-sm text-gray-600 mb-4">{voucher.voucher_description}</p>
-                        {:else}
-                            <p class="text-sm text-red-600 mb-4">Voucher expired</p>
-                        {/if}
-                        <button class="bg-red-600 text-white py-2 px-4 rounded-lg shadow" on:click={() => confirmDelete(voucher.voucher_code)}>Delete</button>
-                        <button class="bg-blue-600 text-white py-2 px-4 rounded-lg shadow ml-2" on:click={() => showEditForm(voucher)}>Edit</button>
-                    </div>
+                    <div class={`flex border border-gray-300 rounded-lg shadow-lg overflow-hidden ${new Date(voucher.voucher_deadline) < new Date() ? 'opacity-50' : ''}`}>
+                        <div class="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-500 text-white p-6 flex items-center justify-center">
+                            <h2 class="font-bold text-5xl">{voucher.voucher_discount}% OFF</h2>
+                        </div>
+                        <div class="ml-4 p-6 bg-gray-100 flex-1 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                            <h3 class="font-bold text-xl text-gray-800">{voucher.voucher_code}</h3>
+                            <p class="text-sm text-gray-600 mb-2">Limited Redemptions; Valid through {formatDate(voucher.voucher_deadline)}</p>
+                            {#if new Date(voucher.voucher_deadline) >= new Date(new Date().setHours(0, 0, 0, 0))}
+                                <p class="text-sm text-gray-600 mb-4">{voucher.voucher_description}</p>
+                            {:else}
+                                <p class="text-sm text-red-600 mb-4">Voucher expired</p>
+                            {/if}
+                            <button class="bg-red-600 text-white py-2 px-4 rounded-lg shadow" on:click={() => confirmDelete(voucher.voucher_code)}>Delete</button>
+                            <button class="bg-blue-600 text-white py-2 px-4 rounded-lg shadow ml-2" on:click={() => showEditForm(voucher)}>Edit</button>
+                        </div>
                     </div>
                 {/each}
             {/if}

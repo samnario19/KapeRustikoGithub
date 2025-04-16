@@ -5,7 +5,6 @@
 	import { handleButtonClick } from '../../utils/buttonHandler'; // Import the reusable function
 	import { currentInputStore } from '../../stores/currentInputStore'; // Import the store
 	import { WindowsSolid } from 'flowbite-svelte-icons';
-	import { fade } from 'svelte/transition'; // Import the missing transition
 
 	let amountPaid = '₱0.00';
 	let cashierName = '';
@@ -29,16 +28,18 @@
 	let selectedCategory = 'All';
 	let payment = '';
 	let isPopupVisible = false;
-	let selectedTable = ''; // Add variable for selected table in receipt
 
 	let isCodePopupVisible = false;
 	let voidIndex: number | null = null;
 	let inputCode = '';
-	let voidReceiptNumber = ''; // Added to store receipt number for voiding
-	let voidItemIndex = -1; // Added to store item index for voiding
-	let adminPassword = '122226'; // Set the admin password (this should eventually come from a secure backend)
 
 	let reservedTables: string[] = []; // Declare an array to hold reserved table numbers
+
+	let waiterName = ''; // Declare the variable to hold the waiter's name
+
+	let serviceCharge = ''; // Declare the variable to hold the service charge
+
+	let includeServiceCharge = false; // Declare the variable to manage service charge inclusion
 
 	type QueuedOrder = {
 		que_order_no: string;
@@ -50,11 +51,16 @@
 		items_ordered: string;
 		total_amount: number;
 		basePrice: number;
+		waiter_name: string;
 	};
 
 	let totalOrderedItemsPrice = 0; // Variable to hold the total price of ordered items
+	let totalServiceCharge = 0; // Variable to hold the total service charge
 	let voucherCode = ''; // Declare the voucherCode variable
 	let voucherDiscount = 0; // Declare the voucherDiscount variable
+	let voidReceiptNumber = ''; // Added to store receipt number for voiding
+	let adminPassword = '123456'; // Set the admin password (this should eventually come from a secure backend)
+	let voidItemIndex = -1;
 
 	// Define the Voucher type
 	type Voucher = {
@@ -67,38 +73,30 @@
 
 	// Function to calculate total price of ordered items
 	function calculateTotalOrderedItemsPrice() {
-		let addonsPrice = 0; // Declare addonsPrice here
-		totalOrderedItemsPrice = orderedItems.reduce((total, item) => {
-			// Skip voided items if they're marked as voided
-			if (item.voided) return total;
-			
-			// Calculate total addons price
-			addonsPrice +=
-				parseFloat(String(item.order_addons_price || 0)) +
-				parseFloat(String(item.order_addons_price2 || 0)) +
-				parseFloat(String(item.order_addons_price3 || 0));
 
+		totalOrderedItemsPrice = orderedItems.reduce((total, item) => {
+			
 			// Calculate total for this item
-			const itemTotal = parseFloat(String(item.basePrice || 0)); // Ensure this is a number
+			const itemTotal = item.basePrice; // Ensure this is a number
+			const addonsPrice = item.order_addons_price || 0; // Get addons price if available
 
 			// Return the accumulated total
-			return total + itemTotal; // Sum the item total
-		}, 0);
+			return total + itemTotal + addonsPrice; // Sum the item total and addons price
+		}, 0); // Initialize total to 0
 
-		totalOrderedItemsPrice += addonsPrice; // Add the total addons price
+		// Calculate VAT and service charge
+		const serviceCharge = Math.round(totalOrderedItemsPrice * 0.05); // 5% service charge
+		const vat = Math.round(totalOrderedItemsPrice * 0.12); // 12% VAT
+
+		// Update totalOrderedItemsPrice to include VAT and service charge
+		totalOrderedItemsPrice += serviceCharge + vat;
 
 		// Log the total ordered items price
-		console.log('Total Ordered Items Price:', totalOrderedItemsPrice.toFixed(2)); // Log the total price
+		console.log('Total Ordered Items Price:', totalOrderedItemsPrice); // Log the total price
 	}
 
 	// Call this function whenever orderedItems changes
 	$: calculateTotalOrderedItemsPrice();
-
-	// Add a reactive statement to log orderedItems when it changes
-	$: {
-		console.log('orderedItems changed:', orderedItems);
-		console.log('totalOrderedItemsPrice:', totalOrderedItemsPrice);
-	}
 
 	// Function to calculate voucher discount
 	async function calculateVoucherDiscount() {
@@ -110,7 +108,7 @@
 		);
 		if (response.ok) {
 			const data = await response.json();
-			voucherDiscount = parseFloat(data[0].voucher_discount);
+			voucherDiscount = data[0].voucher_discount;
 		} else {
 			console.error('Failed to fetch vouchers:', response.statusText);
 			voucherDiscount = 0; // Reset discount on fetch failure
@@ -139,6 +137,7 @@
 			const userData = await response.json();
 			console.log('Fetched user data:', userData); // Log the fetched user data
 			cashierName = userData || 'Unknown'; // Default to 'Unknown' if firstName is not available
+			waiterName = userData.firstName || 'Unknown'; // Example assignment
 		}
 	}
 
@@ -186,6 +185,145 @@
 			console.error('Failed to fetch orders:', response.statusText);
 		}
 	}
+
+	// Function to void an individual item from a queued order
+	async function voidIndividualItem(receiptNumber: string, itemIndex: number) {
+		try {
+			console.log(`Attempting to void item index ${itemIndex} from receipt ${receiptNumber}`);
+			
+			// Get the current order data first
+			const getResponse = await fetch(
+				`http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getOrderItemsByReceipt&receipt_number=${receiptNumber}`
+			);
+			
+			if (!getResponse.ok) {
+				throw new Error(`Error fetching order: ${getResponse.statusText}`);
+			}
+			
+			const orderData = await getResponse.json();
+			console.log("Received order data:", orderData);
+			
+			if (!orderData || orderData.length === 0) {
+				throw new Error("Order not found");
+			}
+			
+			// Since we need to modify the original order in the database,
+			// we need to get the original order object from que_orders
+			const fetchOriginalOrder = await fetch(
+				`http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getQueOrders`
+			);
+			
+			if (!fetchOriginalOrder.ok) {
+				throw new Error(`Error fetching queued orders: ${fetchOriginalOrder.statusText}`);
+			}
+			
+			const allOrders = await fetchOriginalOrder.json();
+			const originalOrder = allOrders.find((order: any) => order.receipt_number === receiptNumber);
+			
+			if (!originalOrder) {
+				throw new Error("Original order not found");
+			}
+			
+			console.log("Found original order:", originalOrder);
+			
+			// Parse items from original order
+			let items = JSON.parse(originalOrder.items_ordered);
+			
+			if (!Array.isArray(items) || items.length <= itemIndex) {
+				throw new Error(`Invalid items array or index out of bounds. Items length: ${items?.length}, Index: ${itemIndex}`);
+			}
+			
+			// Remove the item at the specified index
+			const removedItem = items.splice(itemIndex, 1)[0];
+			console.log("Removed item:", removedItem);
+			
+			// Create a special DELETE request for this specific action to void the item
+			const voidResponse = await fetch(
+				`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=voidQueuedOrder&receipt_number=${receiptNumber}`,
+				{
+					method: 'DELETE',
+					headers: {
+						'Content-Type': 'application/json'
+					}
+				}
+			);
+			
+			if (!voidResponse.ok) {
+				throw new Error(`Error voiding order: ${voidResponse.statusText}`);
+			}
+			
+			// If there are still items, re-add the order with updated items
+			if (items.length > 0) {
+				// Re-insert the order with the updated items list
+				const reinsertData = {
+					saveQueOrder: true,
+					receiptNumber: receiptNumber,
+					date: originalOrder.date,
+					time: originalOrder.time,
+					cashierName: "Cashier", // Fill in with default 
+					waiterName: originalOrder.waiter_name || "",
+					waiterCode: originalOrder.waiter_code || "",
+					itemsOrdered: items,
+					totalAmount: calculateTotalFromItems(items),
+					amountPaid: originalOrder.amount_paid || 0,
+					change: originalOrder.amount_change || 0,
+					order_take: originalOrder.order_take || "Dine In",
+					table_number: originalOrder.table_number || ""
+				};
+				
+				const reinsertResponse = await fetch(
+					'http://localhost/kaperustiko-possystem/backend/modules/save_que_order.php',
+					{
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json'
+						},
+						body: JSON.stringify(reinsertData)
+					}
+				);
+				
+				if (!reinsertResponse.ok) {
+					throw new Error(`Error reinserting order: ${reinsertResponse.statusText}`);
+				}
+				
+				const reinsertResult = await reinsertResponse.json();
+				console.log("Reinsert result:", reinsertResult);
+			}
+			
+			// Update UI
+			showAlert("Item voided successfully", "success");
+			await fetchQueuedOrders();
+			
+			// Re-trigger checkout logic if a card is selected
+			if (selectedCard && selectedCard.table) {
+				handleCheckOut(selectedCard.table);
+			}
+			
+		} catch (error) {
+			console.error('Error voiding item:', error);
+			showAlert(`Error voiding item: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+		}
+	}
+
+	// Helper function to calculate total from items
+	function calculateTotalFromItems(items: any[]): number {
+		let total = 0;
+		items.forEach((item: any) => {
+			// Skip voided items
+			if (item.voided) return;
+			
+			// Base price
+			const basePrice = parseFloat(item.basePrice ? String(item.basePrice) : '0');
+			// Addons prices
+			const addonsPrice1 = parseFloat(item.order_addons_price ? String(item.order_addons_price) : '0');
+			const addonsPrice2 = parseFloat(item.order_addons_price2 ? String(item.order_addons_price2) : '0');
+			const addonsPrice3 = parseFloat(item.order_addons_price3 ? String(item.order_addons_price3) : '0');
+			// Add to total
+			total += basePrice + addonsPrice1 + addonsPrice2 + addonsPrice3;
+		});
+		return total;
+	}
+	
 
 	function updateTime() {
 		const now = new Date();
@@ -280,6 +418,12 @@
 		table: `${index + 1}`
 	}));
 
+	// Add 6 takeout tables
+	let takeoutCards = Array.from({ length: 20 }, (_, index) => ({
+		table: `T${index + 1}` // Prefixing with 'T' for takeout tables
+	}));
+
+
 	let outdoorCards = Array.from({ length: 15 }, (_, index) => ({
 		table: `O${index + 1}`
 	}));
@@ -311,69 +455,23 @@
 		order_addons3?: string;
 		order_addons_price3?: number;
 		order_price?: number;
-		voided: boolean;
 	};
-
-	let totalPax = 1;
-	let seniorCount = 0;
-	let seniorDiscount = 0;
-	let applyServiceCharge = true; // Add this variable to control service charge application
-
-	// Function to toggle service charge
-	function toggleServiceCharge() {
-		applyServiceCharge = !applyServiceCharge;
-		console.log('Service charge toggled:', applyServiceCharge);
-	}
-
-	// Add reactive statement to log when service charge changes
-	$: {
-		if (applyServiceCharge !== undefined) {
-			console.log('Service charge state:', applyServiceCharge);
-		}
-	}
-
-	function calculateSeniorDiscount() {
-		// Ensure totalPax is a number and at least 1
-		totalPax = Math.max(1, parseInt(totalPax.toString()) || 1);
-		// Ensure seniorCount is a number and at least 0
-		seniorCount = Math.max(0, parseInt(seniorCount.toString()) || 0);
-		// Ensure seniorCount doesn't exceed totalPax
-		seniorCount = Math.min(seniorCount, totalPax);
-
-		// Calculate per person amount
-		const perPersonAmount = totalOrderedItemsPrice / totalPax;
-		
-		// Calculate senior discount (20% of their portion)
-		seniorDiscount = (perPersonAmount * 0.20) * seniorCount;
-		
-		// Return the value for use in template
-		return seniorDiscount;
-	}
-
-	// Add reactive statement to recalculate discount when total price changes
-	$: {
-		if (totalOrderedItemsPrice) {
-			calculateSeniorDiscount();
-		}
-	}
 
 	function handlePlaceOrder() {
 		// Check if there are ordered items before opening the receipt popup
 		if (orderedItems.length === 0) {
 			showAlert('No items ordered yet. Please add items to your order.', 'error');
+
 			return; // Exit the function if no items are ordered
 		}
 
-		// Calculate total with all discounts
-		const subtotal = Math.round(Number(totalOrderedItemsPrice)) || 0;
-		const serviceCharge = applyServiceCharge ? Math.round(subtotal * 0.05) : 0;
-		const voucherDiscountAmount = Math.round((subtotal * (Number(voucherDiscount) || 0)) / 100);
-		const seniorDiscountAmount = Math.round(seniorDiscount);
-		const totalCost = Math.round(subtotal - voucherDiscountAmount - seniorDiscountAmount + serviceCharge);
-		const paymentAmount = Math.round(Number(payment)) || 0;
+		// Calculate total cost based on discounts and service charge
+		const totalCost = Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0));
 
-		console.log('Debug - Total Cost:', totalCost); // Debug log
-		console.log('Debug - Payment Amount:', paymentAmount); // Debug log
+		// Log the total cost for debugging
+		console.log('Total Cost:', totalCost); // Log the total cost
+
+		const paymentAmount = Math.round(Number(payment)) || 0;
 
 		// Allow exact amount or more
 		if (paymentAmount < totalCost) {
@@ -381,19 +479,40 @@
 			return;
 		}
 
+		// Save to local storage
+		localStorage.setItem('totalCost', totalCost.toString()); // Save total cost
+		localStorage.setItem('serviceCharge', Math.round(totalOrderedItemsPrice * 0.05).toString()); // Save service charge
+		localStorage.setItem('paymentAmount', paymentAmount.toString()); // Save payment amount
+		localStorage.setItem('change', Math.max(0, paymentAmount - totalCost).toString()); // Save change
+
 		isReceiptPopupVisible = true; // Show the receipt popup
 	}
 
 	async function previewReceipt() {
 		try {
 			const thermalData = {
+				restaurantName: "Kape Rustiko Cafe and Restaurant",
+				address: "Dewey Ave, Subic Bay Freeport Zone",
+				tin: "VAT REG TIN: 123-456-789-12345",
+				transactionDate: new Date().toLocaleDateString(),
+				transactionTime: new Date().toLocaleTimeString(),
 				cashierName: cashierName,
-				orderNumber: orderNumber,
-				totalOrderedItemsPrice: totalOrderedItemsPrice,
-				voucherDiscount: voucherDiscount,
-				payment: 0,
-				orderedItems: orderedItems
+				receiptNumber: orderNumber,
+				waiter_name: waiterName,
+				table_number: selectedCard?.table || 'Take Out',
+				itemsOrdered: orderedItems.map(item => ({
+					name: item.order_name + (item.order_name2 ? ` ${item.order_name2}` : ''),
+					quantity: item.order_quantity,
+					price: item.basePrice
+				})),
+				subtotal: totalOrderedItemsPrice,
+				seniorDiscount: seniorDiscount,
+				service_charge: includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0,
+				total: Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0)),
 			};
+
+			// Log the thermal data to be printed
+			console.log('Thermal Data to be printed:', thermalData); // Log the data
 
 			const thermalResponse = await fetch('http://localhost/kaperustiko-possystem/src/routes/thermal_printer.php', {
 				method: 'POST',
@@ -407,6 +526,10 @@
 				throw new Error('Failed to print preview receipt');
 			}
 
+			// Clear waiter name from local storage
+			localStorage.removeItem('waiter_name');
+			console.log('Waiter name cleared from local storage.');
+
 			showAlert('Preview receipt printed successfully!', 'success');
 		} catch (error: any) {
 			console.error('Error:', error);
@@ -416,22 +539,38 @@
 
 	async function printReceipt() {
 		try {
-			// First send data to thermal printer
+			// Calculate total amount based on discounts and service charge
+			const totalAmount = Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0));
+
 			const thermalData = {
+				restaurantName: "Kape Rustiko Cafe and Restaurant",
+				address: "Dewey Ave, Subic Bay Freeport Zone",
+				tin: "VAT REG TIN: 123-456-789-12345",
+				transactionDate: new Date().toLocaleDateString(),
+				transactionTime: new Date().toLocaleTimeString(),
 				cashierName: cashierName,
-				orderNumber: orderNumber,
-				totalOrderedItemsPrice: totalOrderedItemsPrice,
-				voucherDiscount: voucherDiscount,
-				payment: parseFloat(payment),
-				orderedItems: orderedItems,
-				totalPax: totalPax,
-				seniorCount: seniorCount,
+				receiptNumber: orderNumber,
+				waiter_name: waiterName,
+				table_number: selectedCard?.table || 'Take Out',
+				itemsOrdered: orderedItems.map(item => ({
+					name: item.order_name + (item.order_name2 ? ` ${item.order_name2}` : ''),
+					quantity: item.order_quantity,
+					price: item.basePrice
+				})),
+				subtotal: totalOrderedItemsPrice,
 				seniorDiscount: seniorDiscount,
-				applyServiceCharge: applyServiceCharge,
-				tableNumber: selectedTable || 'Take Out'
+				service_charge: includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0,
+				totalAmount: totalAmount,
+				amountPaid: Number(payment),
+				change: Math.max(0, Number(payment) - totalAmount),
+				order_take: "Dine In",
+				cashier_shift: localStorage.getItem('selectedShift'),
+				sales_code: localStorage.getItem('shiftCode')
 			};
 
-			// Print to thermal printer
+			// Log the thermal data to be printed
+			console.log('Thermal Data to be printed:', thermalData); // Log the data
+
 			const thermalResponse = await fetch('http://localhost/kaperustiko-possystem/src/routes/thermal_printer.php', {
 				method: 'POST',
 				headers: {
@@ -445,19 +584,38 @@
 			}
 
 			// Then proceed with saving receipt data
+			const totalCost = parseFloat(localStorage.getItem('totalCost')!) || 0; // Get total cost
+			const serviceCharge = parseFloat(localStorage.getItem('serviceCharge')!) || 0; // Get service charge
+			const paymentAmount = parseFloat(localStorage.getItem('paymentAmount')!) || 0; // Get payment amount
+			const change = parseFloat(localStorage.getItem('change')!) || 0; // Get change
+
+			// Retrieve cashier_shift and sales_code from local storage
+			const cashierShift = localStorage.getItem('selectedShift'); // Retrieve cashier_shift
+			const salesCode = localStorage.getItem('shiftCode'); // Retrieve sales_code
+
 			const receiptData = {
 				receiptNumber: orderNumber,
 				date: new Date().toLocaleDateString(),
 				time: new Date().toLocaleTimeString(),
 				cashierName: cashierName,
-				itemsOrdered: orderedItems,
-				totalAmount: totalOrderedItemsPrice,
-				amountPaid: parseFloat(payment) || 0,
-				change: Math.max(0, parseFloat((parseFloat(payment) - totalOrderedItemsPrice).toFixed(2))),
+				waiter_name: waiterName,
+				table_number: selectedCard?.table || 'Take Out',
 				order_take: isTakeOut ? 'Take Out' : 'Dine In',
-				table_number: selectedTable
+				amountPaid: paymentAmount, // Use retrieved payment amount
+				change: change, // Use retrieved change
+				service_charge: serviceCharge, // Use retrieved service charge
+				totalAmount: totalCost, // Use retrieved total cost
+				itemsOrdered: orderedItems.map(item => ({
+					order_name: item.order_name,
+					order_quantity: item.order_quantity,
+					basePrice: item.basePrice,
+					// Add other necessary fields here
+				})),
+				cashier_shift: cashierShift, // Add cashier_shift to receiptData
+				sales_code: salesCode // Add sales_code to receiptData
 			};
 
+			console.log('Data to be sent in insertReceipt:', receiptData); // Log the data being sent
 			const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/insert.php?action=insertReceipt', {
 				method: 'POST',
 				headers: {
@@ -471,18 +629,28 @@
 				throw new Error(data.error);
 			}
 
+			// Clear waiter name from local storage
+			localStorage.removeItem('waiter_name');
+			console.log('Waiter name cleared from local storage.');
+
 			showAlert('Receipt printed and saved successfully!', 'success');
 			isReceiptPopupVisible = false;
 
 			// Delete table occupancy
 			const deleteResponse = await fetch(
-				`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=deleteTableOccupancy&table_number=${selectedTable}`,
+				`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=deleteTableOccupancy&table_number=${selectedCard.table}`,
 				{ method: 'DELETE' }
 			);
 
 			const deleteData = await deleteResponse.json();
 			if (!deleteData.success) {
 				console.error('Failed to delete table data:', deleteData.message);
+			} else {
+				// New code to clear local storage and reload the page
+				localStorage.removeItem('totalCost');
+				localStorage.removeItem('serviceCharge');
+				localStorage.removeItem('paymentAmount');
+				localStorage.removeItem('change');
 			}
 
 			window.location.reload();
@@ -492,16 +660,13 @@
 		}
 	}
 
-	function openReceiptPopup() {
-		isReceiptPopupVisible = true;
-	}
-
 	let isCardPopupVisible = false;
 	let selectedCard: any;
 
 	function openCardPopup(card: any) {
 		isCardPopupVisible = true;
 		selectedCard = card;
+		waiterName = card.waiter_name; // Fetch the waiter name from the selected card
 	}
 
 	function closeCardPopup() {
@@ -515,29 +680,24 @@
 			try {
 				// Clear existing ordered items
 				orderedItems = []; 
-				
+				let totalAmount = 0; // Initialize total amount variable
+
 				// Loop through each order and parse items
 				ordersToCheckOut.forEach(order => {
 					const items = JSON.parse(order.items_ordered); // Parse items
 					orderedItems.push(...items); // Add items to orderedItems
+					totalAmount += Number(order.total_amount); // Convert total_amount to number and accumulate
 				});
 
-				// Calculate total from the actual items - this ensures voided items aren't counted
-				totalOrderedItemsPrice = 0;
-				orderedItems.forEach(item => {
-					// Base price for the item
-					totalOrderedItemsPrice += Number(item.basePrice || 0);
-					
-					// Add any addon prices
-					if (item.order_addons_price) totalOrderedItemsPrice += Number(item.order_addons_price || 0);
-					if (item.order_addons_price2) totalOrderedItemsPrice += Number(item.order_addons_price2 || 0);
-					if (item.order_addons_price3) totalOrderedItemsPrice += Number(item.order_addons_price3 || 0);
-				});
-
+				totalOrderedItemsPrice = totalAmount; // Set totalOrderedItemsPrice to the total amount of all orders
 				orderNumber = ordersToCheckOut[0].que_order_no; // Set the order number from the first order
-				selectedTable = table; // Set the selected table
-				console.log("Updated total price:", totalOrderedItemsPrice);
-				console.log("Ordered items after checkout:", orderedItems);
+
+				// New code to store waiter_name in local storage and log it
+				waiterName = ordersToCheckOut[0].waiter_name; // Get the waiter name from the first order
+				localStorage.setItem('waiter_name', waiterName); // Store in local storage
+				console.log('Waiter Name:', waiterName); // Log the waiter name
+
+				console.log(totalOrderedItemsPrice);
 				closeCardPopup(); // Close the popup after checking out
 			} catch (error) {
 				console.error("Error parsing items_ordered JSON during checkout:", error);
@@ -660,274 +820,38 @@
 		}
 	}
 
-	async function testThermalPrint() {
-		try {
-			const testData = {
-				cashierName: "Test Cashier",
-				orderNumber: "TEST-" + Math.floor(Math.random() * 1000),
-				totalOrderedItemsPrice: 299.00,
-				voucherDiscount: 0,
-				payment: 300.00,
-				orderedItems: [
-					{
-						order_name: "Test Coffee",
-						order_quantity: 1,
-						basePrice: 199.00,
-						order_addons: "Extra Shot",
-						order_addons_price: 100.00
-					}
-				]
-			};
+	// Add these variables near the top of the script section with other variable declarations
+	let totalPax = 1;
+	let seniorCount = 0;
+	let seniorDiscount = 0;
 
-			console.log('Sending test print data:', testData);
+	// Add this function in the script section
+	function calculateSeniorDiscount() {
+		if (totalPax < 1) totalPax = 1;
+		if (seniorCount > totalPax) seniorCount = totalPax;
+		if (seniorCount < 0) seniorCount = 0;
 
-			const response = await fetch('http://localhost/kaperustiko-possystem/src/routes/thermal_printer.php', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify(testData)
-			});
-			
-			console.log('Response status:', response.status);
-			const responseText = await response.text();
-			console.log('Raw response:', responseText);
+		// Calculate per person amount
+		const perPersonAmount = totalOrderedItemsPrice / totalPax;
+		
+		// Calculate senior discount (20% of their portion)
+		seniorDiscount = (perPersonAmount * 0.20) * seniorCount;
+	}
 
-			let result;
-			try {
-				result = JSON.parse(responseText);
-			} catch (e) {
-				console.error('Failed to parse JSON response:', e);
-				alert('Error: Invalid response from server. Check console for details.');
-				return;
-			}
-			
-			if (result.success) {
-				alert('Test receipt printed successfully!');
-			} else {
-				alert('Failed to print test receipt: ' + (result.message || 'Unknown error'));
-			}
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-			console.error('Print error:', error);
-			alert('Error printing test receipt: ' + errorMessage);
+	// Add reactive statement to recalculate discount when total price changes
+	$: {
+		if (totalOrderedItemsPrice) {
+			calculateSeniorDiscount();
 		}
 	}
 
-	// Function to void an individual item from a queued order
-	async function voidIndividualItem(receiptNumber: string, itemIndex: number) {
-		try {
-			console.log(`Attempting to void item index ${itemIndex} from receipt ${receiptNumber}`);
-			
-			// Get the current order data first
-			const getResponse = await fetch(
-				`http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getOrderItemsByReceipt&receipt_number=${receiptNumber}`
-			);
-			
-			if (!getResponse.ok) {
-				throw new Error(`Error fetching order: ${getResponse.statusText}`);
-			}
-			
-			const orderData = await getResponse.json();
-			console.log("Received order data:", orderData);
-			
-			if (!orderData || orderData.length === 0) {
-				throw new Error("Order not found");
-			}
-			
-			// Since we need to modify the original order in the database,
-			// we need to get the original order object from que_orders
-			const fetchOriginalOrder = await fetch(
-				`http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getQueOrders`
-			);
-			
-			if (!fetchOriginalOrder.ok) {
-				throw new Error(`Error fetching queued orders: ${fetchOriginalOrder.statusText}`);
-			}
-			
-			const allOrders = await fetchOriginalOrder.json();
-			const originalOrder = allOrders.find((order: any) => order.receipt_number === receiptNumber);
-			
-			if (!originalOrder) {
-				throw new Error("Original order not found");
-			}
-			
-			console.log("Found original order:", originalOrder);
-			
-			// Parse items from original order
-			let items = JSON.parse(originalOrder.items_ordered);
-			
-			if (!Array.isArray(items) || items.length <= itemIndex) {
-				throw new Error(`Invalid items array or index out of bounds. Items length: ${items?.length}, Index: ${itemIndex}`);
-			}
-			
-			// Remove the item at the specified index
-			const removedItem = items.splice(itemIndex, 1)[0];
-			console.log("Removed item:", removedItem);
-			
-			// Create a special DELETE request for this specific action to void the item
-			const voidResponse = await fetch(
-				`http://localhost/kaperustiko-possystem/backend/modules/delete.php?action=voidQueuedOrder&receipt_number=${receiptNumber}`,
-				{
-					method: 'DELETE',
-					headers: {
-						'Content-Type': 'application/json'
-					}
-				}
-			);
-			
-			if (!voidResponse.ok) {
-				throw new Error(`Error voiding order: ${voidResponse.statusText}`);
-			}
-			
-			// If there are still items, re-add the order with updated items
-			if (items.length > 0) {
-				// Re-insert the order with the updated items list
-				const reinsertData = {
-					saveQueOrder: true,
-					receiptNumber: receiptNumber,
-					date: originalOrder.date,
-					time: originalOrder.time,
-					cashierName: "Cashier", // Fill in with default 
-					waiterName: originalOrder.waiter_name || "",
-					waiterCode: originalOrder.waiter_code || "",
-					itemsOrdered: items,
-					totalAmount: calculateTotalFromItems(items),
-					amountPaid: originalOrder.amount_paid || 0,
-					change: originalOrder.amount_change || 0,
-					order_take: originalOrder.order_take || "Dine In",
-					table_number: originalOrder.table_number || ""
-				};
-				
-				const reinsertResponse = await fetch(
-					'http://localhost/kaperustiko-possystem/backend/modules/save_que_order.php',
-					{
-						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json'
-						},
-						body: JSON.stringify(reinsertData)
-					}
-				);
-				
-				if (!reinsertResponse.ok) {
-					throw new Error(`Error reinserting order: ${reinsertResponse.statusText}`);
-				}
-				
-				const reinsertResult = await reinsertResponse.json();
-				console.log("Reinsert result:", reinsertResult);
-			}
-			
-			// Update UI
-			showAlert("Item voided successfully", "success");
-			await fetchQueuedOrders();
-			
-			// Re-trigger checkout logic if a card is selected
-			if (selectedCard && selectedCard.table) {
-				handleCheckOut(selectedCard.table);
-			}
-			
-		} catch (error) {
-			console.error('Error voiding item:', error);
-			showAlert(`Error voiding item: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-		}
-	}
-	
-	// Helper function to calculate total from items
-	function calculateTotalFromItems(items: any[]): number {
-		let total = 0;
-		items.forEach((item: any) => {
-			// Skip voided items
-			if (item.voided) return;
-			
-			// Base price
-			const basePrice = parseFloat(item.basePrice ? String(item.basePrice) : '0');
-			// Addons prices
-			const addonsPrice1 = parseFloat(item.order_addons_price ? String(item.order_addons_price) : '0');
-			const addonsPrice2 = parseFloat(item.order_addons_price2 ? String(item.order_addons_price2) : '0');
-			const addonsPrice3 = parseFloat(item.order_addons_price3 ? String(item.order_addons_price3) : '0');
-			// Add to total
-			total += basePrice + addonsPrice1 + addonsPrice2 + addonsPrice3;
-		});
-		return total;
-	}
+	let total = 0; // Initialize total variable
 
-	// Function to calculate the total bill with all discounts and charges
-	function calculateTotalBill() {
-		// Check if orderedItems array is empty
-		if (orderedItems.length === 0) {
-			console.log('Warning: orderedItems array is empty');
-		}
-		
-		// Base subtotal - only including non-voided items
-		const subtotal = totalOrderedItemsPrice;
-		
-		// Calculate service charge
-		const serviceCharge = applyServiceCharge ? subtotal * 0.05 : 0;
-		
-		// Calculate discounts
-		const voucherDiscountAmount = (subtotal * (parseFloat(String(voucherDiscount)) || 0)) / 100;
-		const seniorDiscountAmount = seniorDiscount;
-		
-		// Calculate final total
-		const total = subtotal - voucherDiscountAmount - seniorDiscountAmount + serviceCharge;
-		
-		// Add console log for debugging
-		console.log('Total calculation:', {
-			subtotal,
-			serviceCharge,
-			voucherDiscountAmount,
-			seniorDiscountAmount,
-			total,
-			orderedItemsCount: orderedItems.length
-		});
-		
-		return total;
-	}
+	// Reactive statement to calculate total whenever relevant values change
+	$: total = Math.round(totalOrderedItemsPrice - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0));
 
-	// Function to calculate subtotal (for receipt)
-	function calculateSubtotal() {
-		// Only count non-voided items
-		let subtotal = 0;
-		orderedItems.forEach(item => {
-			if (!item.voided) {
-				subtotal += parseFloat(item.basePrice ? String(item.basePrice) : '0') + 
-				           parseFloat(item.order_addons_price ? String(item.order_addons_price) : '0') +
-				           parseFloat(item.order_addons_price2 ? String(item.order_addons_price2) : '0') +
-				           parseFloat(item.order_addons_price3 ? String(item.order_addons_price3) : '0');
-			}
-		});
-		return subtotal;
-	}
-
-	// Function for calculating total with discounts for receipt
-	function calculateTotal() {
-		const subtotal = calculateSubtotal();
-		
-		// Calculate discounts
-		const voucherDiscountAmount = (subtotal * (parseFloat(String(voucherDiscount)) || 0)) / 100;
-		const seniorDiscountAmount = seniorDiscount;
-		
-		// Calculate service charge
-		const serviceCharge = applyServiceCharge ? subtotal * 0.05 : 0;
-		
-		// Calculate final total
-		return subtotal - voucherDiscountAmount - seniorDiscountAmount + serviceCharge;
-	}
-
-	// Format date function for receipt
-	function formatDate(date: Date): string {
-		return date.toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		});
-	}
-	
-	// Function to close receipt popup
-	function closeReceiptPopup() {
-		isReceiptPopupVisible = false;
-	}
+	// Example array of occupied table numbers (this should come from your actual data)
+	let occupiedTableNumbers = ['1', '2', 'O1', 'G1', 'T1']; // Replace with actual occupied table numbers
 </script>
 
 <div class="flex h-screen">
@@ -935,14 +859,16 @@
 	<div class="flex flex-grow overflow-hidden bg-gray-100">
 		<div class="flex-start w-full overflow-auto p-4">
 			<div class="mb-4 flex w-full space-x-4">
-				{#each ['All', 'Occupied', 'Available', 'Reserved', 'Take Out'] as category}
+				{#each ['All', 'Occupied', 'Outdoor', 'Garden', 'Take Out'] as category}
 					<button
 						class="w-full rounded-md px-6 py-2 font-bold text-black"
 						class:bg-cyan-950={selectedCategory === category}
 						class:text-white={selectedCategory === category}
 						class:bg-white={selectedCategory !== category}
 						class:shadow-md={selectedCategory !== category}
-						on:click={() => (selectedCategory = category)}
+						on:click={() => {
+							selectedCategory = category; // Update selected category
+						}}
 					>
 						{category}
 					</button>
@@ -960,22 +886,20 @@
 					<p>Display All Tables</p>
 				{:else if selectedCategory === 'Occupied'}
 					<p>Display Occupied Tables</p>
-				{:else if selectedCategory === 'Available'}
-					<p>Display Available Tables</p>
-				{:else if selectedCategory === 'Reserved'}
-					<p>Display Reserved Tables</p>
+				{:else if selectedCategory === 'Outdoor'}
+					<p>Display Outdoor Tables</p>
+				{:else if selectedCategory === 'Garden'}
+					<p>Display Garden Tables</p>
 				{:else if selectedCategory === 'Take Out'}
 					<p>Display Take Out Tables</p>
 				{/if}
 				<p class="mr-4">{currentDay} - {currentTime}</p>
 			</div>
 
-			<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-				{#each cards as card}
-					{#if selectedCategory === 'All' || 
-						(selectedCategory === 'Occupied' && orders.some((order) => order.table_number === card.table)) || 
-						(selectedCategory === 'Available' && !orders.some((order) => order.table_number === card.table) && !reservedTables.includes(card.table)) || 
-						(selectedCategory === 'Reserved' && reservedTables.includes(card.table))}
+			<!-- Conditional rendering of cards based on selected category -->
+			{#if selectedCategory === 'All'}
+				<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+					{#each [...cards, ...outdoorCards, ...gardenCards, ...takeoutCards] as card}
 						<button
 							class={`border-2 ${orders.some((order) => order.table_number === card.table) ? 'border-white bg-cyan-950 text-white' : reservedTables.includes(card.table) ? 'border-white bg-red-950 text-white' : 'border-cyan-950 bg-white text-black'} flex flex-col items-center justify-center rounded-full p-8 shadow-lg`}
 							on:click={() => {
@@ -987,7 +911,7 @@
 							}}
 							aria-label={`Open popup for table ${card.table}`}
 						>
-							<h3 class="text-6xl font-bold">{card.table}</h3>
+							<h3 class="text-5xl font-bold">{card.table}</h3>
 							<span
 								class={`mt-2 rounded-full bg-gray-200 px-4 py-2 text-xs text-gray-500 ${orders.some((order) => order.table_number === card.table) ? 'bg-red-500 text-white' : reservedTables.includes(card.table) ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
 							>
@@ -998,13 +922,38 @@
 										: 'Available'}
 							</span>
 						</button>
-					{/if}
-				{/each}
-			</div>
-
-			<!-- Outdoor Tables Section -->
-			<div class="mt-12">
-				<h2 class="mb-6 text-center text-3xl font-bold text-gray-800">Outdoor Setting</h2>
+					{/each}
+				</div>
+			{:else if selectedCategory === 'Occupied'}
+				<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+					{#each [...gardenCards, ...outdoorCards, ...takeoutCards] as card}
+						{#if occupiedTableNumbers.includes(card.table)}
+							<button
+								class={`border-2 ${orders.some((order) => order.table_number === card.table) ? 'border-white bg-cyan-950 text-white' : reservedTables.includes(card.table) ? 'border-white bg-red-950 text-white' : 'border-cyan-950 bg-white text-black'} flex flex-col items-center justify-center rounded-full p-8 shadow-lg`}
+								on:click={() => {
+									if (reservedTables.includes(card.table)) {
+										openReservedTable2Popup(card);
+									} else if (orders.some((order) => order.table_number === card.table)) {
+										openCardPopup(card);
+									}
+								}}
+								aria-label={`Open popup for table ${card.table}`}
+							>
+								<h3 class="text-5xl font-bold">{card.table}</h3>
+								<span
+									class={`mt-2 rounded-full bg-gray-200 px-4 py-2 text-xs text-gray-500 ${orders.some((order) => order.table_number === card.table) ? 'bg-red-500 text-white' : reservedTables.includes(card.table) ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
+								>
+									{orders.some((order) => order.table_number === card.table)
+										? 'Occupied'
+										: reservedTables.includes(card.table)
+											? 'Reserved'
+											: 'Available'}
+								</span>
+							</button>
+						{/if}
+					{/each}
+				</div>
+			{:else if selectedCategory === 'Outdoor'}
 				<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
 					{#each outdoorCards as card}
 						<button
@@ -1031,13 +980,7 @@
 						</button>
 					{/each}
 				</div>
-			</div>
-
-		
-
-			<!-- Garden Tables Section -->
-			<div class="mt-12">
-				<h2 class="mb-6 text-center text-3xl font-bold text-gray-800">Garden Setting</h2>
+			{:else if selectedCategory === 'Garden'}
 				<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
 					{#each gardenCards as card}
 						<button
@@ -1064,7 +1007,37 @@
 						</button>
 					{/each}
 				</div>
-			</div>
+			{:else if selectedCategory === 'Take Out'}
+				<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+					{#each takeoutCards as card}
+						<button
+							class={`border-2 ${orders.some((order) => order.table_number === card.table) ? 'border-white bg-cyan-950 text-white' : reservedTables.includes(card.table) ? 'border-white bg-red-950 text-white' : 'border-cyan-950 bg-white text-black'} flex flex-col items-center justify-center rounded-full p-6 shadow-lg`}
+							on:click={() => {
+								if (reservedTables.includes(card.table)) {
+									openReservedTable2Popup(card);
+								} else if (orders.some((order) => order.table_number === card.table)) {
+									openCardPopup(card);
+								}
+							}}
+							aria-label={`Open popup for garden table ${card.table}`}
+						>
+							<h3 class="text-4xl font-bold">{card.table}</h3>
+							<span
+								class={`mt-2 rounded-full bg-gray-200 px-4 py-2 text-xs text-gray-500 ${orders.some((order) => order.table_number === card.table) ? 'bg-red-500 text-white' : reservedTables.includes(card.table) ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
+							>
+								{orders.some((order) => order.table_number === card.table)
+									? 'Occupied'
+									: reservedTables.includes(card.table)
+										? 'Reserved'
+										: 'Available'}
+							</span>
+						</button>
+					{/each}
+				</div>
+			{:else}
+				<!-- Render all other categories or a default message -->
+				<p>Select a category to see the tables.</p>
+			{/if}
 
 			{#if isCardPopupVisible}
 				<div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
@@ -1180,7 +1153,7 @@
 							</p>
 							<div class="mb-2 flex w-full items-center justify-between border-b pb-1">
 								<p class="font-normal">{item.order_size}</p>
-								<p class="text-right font-normal">₱{parseFloat(item.basePrice ? String(item.basePrice) : '0').toFixed(2)}</p>
+								<p class="text-right font-normal">₱{item.basePrice}.00</p>
 							</div>
 
 							{#if item.order_addons && item.order_addons_price != null && item.order_addons_price > 0}
@@ -1189,19 +1162,19 @@
 									{#if item.order_addons}
 										<div class="flex justify-between">
 											<p class="font-normal">{item.order_addons}</p>
-											<p class="text-right font-normal">₱{parseFloat(item.order_addons_price ? String(item.order_addons_price) : '0').toFixed(2)}</p>
+											<p class="text-right font-normal">₱{item.order_addons_price}.00</p>
 										</div>
 									{/if}
 									{#if item.order_addons2}
 										<div class="flex justify-between">
 											<p class="font-normal">{item.order_addons2}</p>
-											<p class="text-right font-normal">₱{parseFloat(item.order_addons_price2 ? String(item.order_addons_price2) : '0').toFixed(2)}</p>
+											<p class="text-right font-normal">₱{item.order_addons_price2}.00</p>
 										</div>
 									{/if}
 									{#if item.order_addons3}
 										<div class="flex justify-between">
 											<p class="font-normal">{item.order_addons3}</p>
-											<p class="text-right font-normal">₱{parseFloat(item.order_addons_price3 ? String(item.order_addons_price3) : '0').toFixed(2)}</p>
+											<p class="text-right font-normal">₱{item.order_addons_price3}.00</p>
 										</div>
 									{/if}
 								</div>
@@ -1229,135 +1202,70 @@
 						Redeem
 					</button>
 				</div>
-				<!-- Enhanced Senior/PWD Discount Fields -->
+				<!-- New Subtotal Display -->
+				<div class="mb-4 flex w-full items-center justify-between border-b pb-2">
+					<p class="text-sm font-semibold text-gray-700">Subtotal:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice)}</p>
+				</div>
+				<!-- Add Senior/PWD Discount Fields -->
 				<div class="mb-4 flex w-full items-center justify-between border-b pb-2">
 					<div class="flex items-center w-1/2 mr-2">
 						<p class="text-sm font-semibold text-gray-700 mr-2">Total PAX:</p>
 						<input
-							type="text"
+							type="number"
 							bind:value={totalPax}
+							min="1"
 							class="text-sm font-bold text-gray-800 w-16 border rounded px-2 py-1"
-							on:input={() => {
-								// Capture the input even if it's not a number yet
-								calculateSeniorDiscount();
-							}}
-							on:blur={() => {
-								// On blur, ensure it's at least 1
-								if (!totalPax || totalPax < 1) totalPax = 1;
-								calculateSeniorDiscount();
-							}}
-							on:keydown={(e) => {
-								if (e.key === 'Enter') {
-									if (!totalPax || totalPax < 1) totalPax = 1;
-									calculateSeniorDiscount();
-								}
-							}}
+							on:input={calculateSeniorDiscount}
 						/>
 					</div>
 					<div class="flex items-center w-1/2">
 						<p class="text-sm font-semibold text-gray-700 mr-2">Senior/PWD:</p>
 						<input
-							type="text"
+							type="number"
 							bind:value={seniorCount}
+							min="0"
+							max={totalPax}
 							class="text-sm font-bold text-gray-800 w-16 border rounded px-2 py-1"
-							on:input={() => {
-								// Capture the input even if it's not a number yet
-								calculateSeniorDiscount();
-							}}
-							on:blur={() => {
-								// On blur, ensure it's at least 0
-								if (!seniorCount || seniorCount < 0) seniorCount = 0;
-								calculateSeniorDiscount();
-							}}
-							on:keydown={(e) => {
-								if (e.key === 'Enter') {
-									if (!seniorCount || seniorCount < 0) seniorCount = 0;
-									calculateSeniorDiscount();
-								}
-							}}
+							on:input={calculateSeniorDiscount}
 						/>
 					</div>
 				</div>
-				<div class="flex w-full items-center justify-between border-b pb-1">
-					<button 
-						class="flex items-center text-left focus:outline-none" 
-						on:click={toggleServiceCharge}
-					>
-						<div class={`w-5 h-5 mr-2 border rounded flex items-center justify-center ${applyServiceCharge ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
-							{#if applyServiceCharge}
-								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-								</svg>
-							{/if}
-						</div>
-						<span class="text-sm font-semibold text-gray-700">Service Charge (5%)</span>
-					</button>
-					<p class="text-sm font-bold text-gray-800">₱{applyServiceCharge ? (totalOrderedItemsPrice * 0.05).toFixed(2) : '0.00'}</p>
+				<!-- New Checkbox for Service Charge -->
+				<div class="mb-4 flex items-center justify-between border-b pb-2">
+					<p class="text-sm font-semibold text-gray-700">Include Service Charge:</p>
+					<input
+						type="checkbox"
+						bind:checked={includeServiceCharge}
+						class="ml-2"
+					/>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Voucher Discount:</p>
-					<p class="text-sm font-bold text-gray-800">₱{(totalOrderedItemsPrice * voucherDiscount / 100).toFixed(2)}</p>
+					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(seniorDiscount)}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
-					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount ({seniorCount}):</p>
-					<p class="text-sm font-bold text-gray-800">₱{seniorDiscount.toFixed(2)}</p>
+					<p class="text-sm font-semibold text-gray-700">Total Discount:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice * voucherDiscount / 100)}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Service Charge (5%):</p>
+					<p class="text-sm font-bold text-gray-800">₱{includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0}</p>
 				</div>
 				<div class="flex w-full items-center justify-between border-b pb-1">
 					<p class="text-sm font-semibold text-gray-700">Total:</p>
-					<p class="text-sm font-bold text-gray-800">
-						₱{(()=>{
-							// Direct calculation for debugging
-							let directTotal = 0;
-							orderedItems.forEach(item => {
-								if (!item.voided) {
-									directTotal += parseFloat(String(item.basePrice || 0)) + 
-										parseFloat(String(item.order_addons_price || 0)) +
-										parseFloat(String(item.order_addons_price2 || 0)) +
-										parseFloat(String(item.order_addons_price3 || 0));
-								}
-							});
-							
-							// Apply service charge
-							const serviceCharge = applyServiceCharge ? directTotal * 0.05 : 0;
-							
-							// Apply discounts
-							const voucherAmount = (directTotal * (parseFloat(String(voucherDiscount)) || 0)) / 100;
-							
-							// Get final total
-							const finalTotal = directTotal - voucherAmount - seniorDiscount + serviceCharge;
-							
-							console.log("Direct calculation:", {
-								directTotal,
-								serviceCharge,
-								voucherAmount,
-								seniorDiscount,
-								finalTotal
-							});
-							
-							return finalTotal.toFixed(2);
-						})()}
-					</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0))}</p>
 				</div>
 				<div class="flex justify-between">
 					<p class="text-sm">Amount Paid:</p>
-					<span class="text-sm">₱{(parseFloat(payment) || 0).toFixed(2)}</span>
+					<span class="text-sm">₱{Math.round(parseFloat(payment) || 0)}</span>
 				</div>
 				<div class="flex justify-between">
 					<p class="text-sm">Change:</p>
 					<span class="text-sm">
-						₱{(() => {
-							// Calculate total with all discounts
-							const totalCost = Math.round(calculateTotalBill());
-							const paymentAmount = parseFloat(payment) || 0;
-							
-							// If payment and total are equal (or very close), return 0
-							if (Math.abs(paymentAmount - totalCost) <= 1) {
-								return '0.00';
-							}
-							
-							// Otherwise calculate regular change
-							return Math.max(0, paymentAmount - totalCost).toFixed(2);
-						})()}
+						₱{Math.round(Math.max(0, (Math.round(parseFloat(payment) || 0) - 
+							(Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0)))
+						)))}
 					</span>
 				</div>
 			</div>
@@ -1370,22 +1278,6 @@
 						bind:value={payment}
 						placeholder="Enter amount"
 						class="w-full rounded-md border border-gray-300 p-3 text-gray-800 focus:border-blue-500 focus:ring-blue-500"
-						on:input={() => {
-							// Store in localStorage to maintain compatibility with other functions
-							localStorage.setItem('payment', payment);
-							
-							// Calculate total with all discounts
-							const totalCost = Math.round(calculateTotalBill());
-							const paymentAmount = parseFloat(payment) || 0;
-
-							console.log('Debug - Total Cost:', totalCost); // Debug log
-							console.log('Debug - Payment Amount:', paymentAmount); // Debug log
-							
-							// Allow exact amount or more
-							if (paymentAmount < totalCost) {
-								showAlert('Invalid amount. Please enter at least the exact amount.', 'error');
-							}
-						}}
 					/>
 				</div>
 				
@@ -1418,12 +1310,6 @@
 						class="rounded py-3 font-bold text-white bg-blue-600 hover:bg-blue-700 w-full"
 					>
 						Checkout Bill
-					</button>
-					<button
-						on:click={() => previewReceipt()}
-						class="rounded py-3 font-bold text-white bg-green-600 hover:bg-green-700 w-full"
-					>
-						Preview Receipt
 					</button>
 				</div>
 			</div>
@@ -1565,120 +1451,115 @@
 {/if}
 
 {#if isReceiptPopupVisible}
-	<div class="receipt-popup" transition:fade={{ duration: 150 }}>
-		<div class="receipt-popup-overlay" on:click={closeReceiptPopup}></div>
-		<div class="receipt-popup-content">
-			<div class="receipt-popup-header">
-				<h3>Receipt Preview</h3>
-				<button class="close-button" on:click={closeReceiptPopup}>×</button>
+	<div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
+		<div class="rounded-lg bg-white p-8 shadow-lg max-w-lg w-full receipt-container max-h-[90vh] overflow-y-auto">
+			<div class="mb-4 flex justify-center">
+				<img src="icon.png" alt="Restaurant Logo" class="h-24" />
 			</div>
-			<div class="receipt-popup-body">
-				<div class="receipt">
-					<div class="receipt-header text-center">
-						<h3>Kaperustiko</h3>
-						<p>Kaperustiko Cafe & Restaurant</p>
-						<p>33 Purok 1, Gugo, Santa Maria, Bulacan</p>
-						<p>Receipt #: {orderNumber}</p>
-						<p>Date: {formatDate(new Date())}</p>
-						<p>Time: {new Date().toLocaleTimeString()}</p>
-						<p>Table Number: {selectedTable || 'Take-Out'}</p>
-					</div>
-					
-					<div class="receipt-body mt-4">
-						<table class="w-full">
-							<thead>
-								<tr>
-									<th class="text-left">Item</th>
-									<th class="text-right">Price</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each orderedItems as item}
-									{#if !item.voided}
-										<tr>
-											<td class="text-left">
-												{item.order_name}
-												{item.order_name2}
-												{#if item.order_addons}
-													<br />
-													<span class="text-sm">+ {item.order_addons}</span>
-												{/if}
-												{#if item.order_addons2}
-													<br />
-													<span class="text-sm">+ {item.order_addons2}</span>
-												{/if}
-												{#if item.order_addons3}
-													<br />
-													<span class="text-sm">+ {item.order_addons3}</span>
-												{/if}
-											</td>
-											<td class="text-right">
-												₱{parseFloat(item.basePrice ? String(item.basePrice) : '0').toFixed(2)}
-												{#if item.order_addons_price && parseFloat(String(item.order_addons_price)) > 0}
-													<br />
-													<span class="text-sm">₱{parseFloat(item.order_addons_price ? String(item.order_addons_price) : '0').toFixed(2)}</span>
-												{/if}
-												{#if item.order_addons_price2 && parseFloat(String(item.order_addons_price2)) > 0}
-													<br />
-													<span class="text-sm">₱{parseFloat(item.order_addons_price2 ? String(item.order_addons_price2) : '0').toFixed(2)}</span>
-												{/if}
-												{#if item.order_addons_price3 && parseFloat(String(item.order_addons_price3)) > 0}
-													<br />
-													<span class="text-sm">₱{parseFloat(item.order_addons_price3 ? String(item.order_addons_price3) : '0').toFixed(2)}</span>
-												{/if}
-											</td>
-										</tr>
-									{/if}
-								{/each}
-							</tbody>
-						</table>
+			<h2 class="text-center text-2xl font-bold">Kape Rustiko Cafe and Restaurant</h2>
+			<p class="text-center text-lg">Dewey Ave, Subic Bay Freeport Zone</p>
+			<p class="text-center text-lg">VAT REG TIN: 123-456-789-12345</p>
+			<h2 class="mb-4 mt-4 text-center text-2xl font-bold">SALES INVOICE</h2>
+			<p class="text-lg">Transaction Date: {new Date().toLocaleDateString()}</p>
+			<p class="text-lg">Transaction Time: {new Date().toLocaleTimeString()}</p>
+			<p class="text-lg">Cashier Name: {cashierName}</p>
+			<p class="text-lg">Receipt Number: {orderNumber}</p>
+			<p class="text-lg">Waiter Name: {waiterName}</p> <!-- Added waiter name here -->
+			<p class="text-lg">Table Number: {selectedCard?.table || 'Take Out'}</p>
 
-						<div class="summary mt-4">
-							<div class="flex justify-between">
-								<span>Subtotal:</span>
-								<span>₱{calculateSubtotal().toFixed(2)}</span>
-							</div>
-
-							{#if voucherDiscount > 0}
-								<div class="flex justify-between">
-									<span>Voucher Discount ({voucherDiscount}%):</span>
-									<span>-₱{((calculateSubtotal() * voucherDiscount) / 100).toFixed(2)}</span>
-								</div>
-							{/if}
-
-							{#if seniorCount > 0}
-								<div class="flex justify-between">
-									<span>Senior Discount ({seniorCount} pax):</span>
-									<span>-₱{calculateSeniorDiscount().toFixed(2)}</span>
-								</div>
-							{/if}
-
-							{#if applyServiceCharge}
-								<div class="flex justify-between">
-									<span>Service Charge (5%):</span>
-									<span>₱{(calculateSubtotal() * 0.05).toFixed(2)}</span>
-								</div>
-							{/if}
-
-							<div class="flex justify-between font-bold mt-2">
-								<span>Total:</span>
-								<span>₱{calculateTotal().toFixed(2)}</span>
-							</div>
+			<div class="mt-4">
+				<div class="flex justify-between font-semibold">
+					<h2 class="mt-4 text-lg">Items Ordered:</h2>
+					<span class="mt-4 text-lg">Price</span>
+				</div>
+				{#if orderedItems.length > 0}
+					{#each orderedItems as item}
+						<div class="flex justify-between border-b py-2">
+							<p class="font-normal">{item.order_name} {item.order_name2} x{item.order_quantity}</p>
+							<p class="text-right font-normal">₱{item.basePrice}.00</p>
 						</div>
-					</div>
+						{#if item.order_addons && item.order_addons_price != null && item.order_addons_price > 0}
+							<p class="font-normal">Addons:</p>
+							<div class="flex flex-col">
+								{#if item.order_addons}
+									<div class="flex justify-between">
+										<p class="font-normal">{item.order_addons}</p>
+										<p class="text-right font-normal">₱{item.order_addons_price}.00</p>
+									</div>
+								{/if}
+								{#if item.order_addons2}
+									<div class="flex justify-between">
+										<p class="font-normal">{item.order_addons2}</p>
+										<p class="text-right font-normal">₱{item.order_addons_price2}.00</p>
+									</div>
+								{/if}
+								{#if item.order_addons3}
+									<div class="flex justify-between">
+										<p class="font-normal">{item.order_addons3}</p>
+										<p class="text-right font-normal">₱{item.order_addons_price3}.00</p>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{/each}
+				{:else}
+					<p class="text-center text-gray-600">No items ordered yet.</p>
+				{/if}
+			</div>
 
-					<div class="receipt-footer text-center mt-4">
-						<p>Thank you for dining with us!</p>
-						<p>Please come again.</p>
-					</div>
+			<div class="mt-4 w-full rounded-lg p-2 shadow-md">
+				<div class="mb-4 flex w-full items-center justify-between border-b pb-2">
+					<p class="text-sm font-semibold text-gray-700">Subtotal:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice)}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Senior/PWD Discount:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(seniorDiscount)}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Total Discount:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice * voucherDiscount / 100)}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Service Charge (5%):</p>
+					<p class="text-sm font-bold text-gray-800">₱{includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0}</p>
+				</div>
+				<div class="flex w-full items-center justify-between border-b pb-1">
+					<p class="text-sm font-semibold text-gray-700">Total:</p>
+					<p class="text-sm font-bold text-gray-800">₱{Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0))}</p>
+				</div>
+				<div class="flex justify-between">
+					<p class="text-sm">Amount Paid:</p>
+					<span class="text-sm">₱{Math.round(parseFloat(payment) || 0)}</span>
+				</div>
+				<div class="flex justify-between">
+					<p class="text-sm">Change:</p>
+					<span class="text-sm">
+						₱{Math.round(Math.max(0, (Math.round(parseFloat(payment) || 0) - 
+							(Math.round(totalOrderedItemsPrice - Math.round(totalOrderedItemsPrice * voucherDiscount / 100) - Math.round(seniorDiscount) + (includeServiceCharge ? Math.round(totalOrderedItemsPrice * 0.05) : 0)))
+						)))}
+					</span>
 				</div>
 			</div>
-			<div class="receipt-popup-actions">
-				<button class="print-button" on:click={printReceipt}>
-					<i class="fas fa-print"></i> Print Receipt
+
+			<div class="mt-6 flex justify-center space-x-4">
+				<button 
+					on:click={() => previewReceipt()} 
+					class="rounded-md bg-blue-500 px-6 py-2 text-white transition hover:bg-blue-600"
+				>
+					Preview Receipt
 				</button>
-				<button class="cancel-button ml-2" on:click={closeReceiptPopup}>
-					<i class="fas fa-times"></i> Close
+				<button 
+					on:click={() => printReceipt()} 
+					class="rounded-md bg-green-500 px-6 py-2 text-white transition hover:bg-green-600"
+				>
+					Print & Save
+				</button>
+				<button 
+					on:click={() => isReceiptPopupVisible = false} 
+					class="rounded-md bg-red-500 px-6 py-2 text-white transition hover:bg-red-600"
+				>
+					Cancel
 				</button>
 			</div>
 		</div>

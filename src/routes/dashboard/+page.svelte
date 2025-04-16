@@ -1,92 +1,29 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { FontAwesomeIcon } from "@fortawesome/svelte-fontawesome";
-    import { faStar, faUndo, faExclamationTriangle, faTrash, faDollarSign, faPrint, faArrowDown, faChartBar, faTrophy, faExclamationCircle, faTrashAlt } from "@fortawesome/free-solid-svg-icons";
+    import { faStar, faUndo, faExclamationTriangle, faTrash, faDollarSign, faPrint, faArrowDown, faChartBar, faTrophy, faExclamationCircle, faTrashAlt, faUser } from "@fortawesome/free-solid-svg-icons";
     import Sidebar from "../sidebar/+page.svelte";
-    import { Bar, Line, Pie } from 'svelte-chartjs';
-    import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
+    import { Chart, LineController, LineElement, PointElement, LinearScale, Title, Tooltip, Legend, CategoryScale, Filler, BarController, BarElement } from 'chart.js';
 
-    ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement);
+    // Register the necessary components
+    Chart.register(LineController, LineElement, PointElement, LinearScale, Title, Tooltip, Legend, CategoryScale, Filler, BarController, BarElement);
 
     let salesRemitItems: any[] = [];
     let returnItems: any[] = [];
 
-    // Sample data for charts
-    let salesData = {
-        labels: ['January', 'February', 'March', 'April', 'May', 'June'],
-        datasets: [
-            {
-                label: 'Sales',
-                data: [300, 500, 400, 600, 700, 800].filter((value): value is number => value !== null),
-                backgroundColor: (ctx: { dataset: { data: number[] }, dataIndex: number }) => {
-                    const value = ctx.dataset.data[ctx.dataIndex];
-                    if (value < 400) return 'red';
-                    if (value < 600) return 'yellow';
-                    return 'green';
-                },
-            }
-        ]
-    };
-
-    let inventoryData = {
-        labels: [],
-        datasets: [
-            {
-                label: 'Critical',
-                data: [],
-                backgroundColor: 'red',
-            },
-            {
-                label: 'Warning',
-                data: [],
-                backgroundColor: 'yellow',
-            },
-            {
-                label: 'Good',
-                data: [],
-                backgroundColor: 'green',
-            }
-        ]
-    };
-
-    let returnData = {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        datasets: [
-            {
-                label: 'Returns',
-                data: [5, 10, 15, 20],
-                backgroundColor: 'rgba(255, 99, 132, 0.6)',
-                borderColor: 'rgba(255, 99, 132, 1)',
-                fill: false,
-            }
-        ]
-    };
 
     let totalSalesToday = 0; // Variable to store today's total sales
-    let sortOption = 'qty'; // Declare sortOption with a default value
-    let selectedCategory = 'Food'; // Reactive variable for selected category
     let overallTotalSales: number = 0; // Variable to store overall total sales
     let bestSeller: string = "Loading..."; // Initialize bestSeller
     let leastSeller: string = "Loading..."; // Initialize leastSeller
-    let totalShortageCost = 0; // Variable to store total shortage cost
     let todayShortageCost = 0; // Variable to store today's shortage cost
-    let todayReturnCost = 0; // Variable to store today's total return cost
-    let totalReturnCost = 0; // Variable to store total return cost
-
-    // Add these variables for confirmation modals
     let showDeleteRemitModal = false;
     let showDeleteReturnModal = false;
     let itemToDelete: number | null = null;
-
-    let selectedDateRange = 'firstHalf'; // Default value
-
-    // Add this interface before the forEach
-    interface MonthlySale {
-        month: number;
-        total_amount: number;
-    }
-
     let waiterOrderCounts: { firstName: string; lastName: string; order_count: number }[] = []; // Update the type
+    let leadingStaff: { firstName: string; lastName: string } | null = null; // Variable to store leading staff data
+    let showPopup = false; // State to control popup visibility
+    let popupData: any = null; // State to hold data for the popup
 
     onMount(async () => {
         const today = new Date();
@@ -101,8 +38,6 @@
         const responseRemit = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getRemitSales');
         const remitItems = await responseRemit.json();
         salesRemitItems = remitItems; // Store fetched data in salesRemitItems
-
-        fetchDataForCategory(selectedCategory); // Fetch data for Food on mount
 
         const responseReturn = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getRemitReturns');
         const fetchedReturnItems = await responseReturn.json(); // Fetch return items
@@ -156,110 +91,144 @@
             leastSeller = "Error fetching data"; // Handle error
         }
 
-        // Fetch total shortage cost
-        try {
-            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getTotalShortage', {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-            const data = await response.json();
-            if (data.total_shortage !== null) {
-                totalShortageCost = data.total_shortage; // Update the total shortage cost variable
-            }
-        } catch (error) {
-            console.error("Error fetching total shortage cost:", error);
-        }
-
-        // Fetch today's shortage cost
-        try {
-            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getTodayShortage', {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-            const data = await response.json();
-            if (data.total_shortage !== null) {
-                todayShortageCost = data.total_shortage; // Update the today's shortage cost variable
-            }
-        } catch (error) {
-            console.error("Error fetching today's shortage cost:", error);
-        }
-
-        // Fetch today's return cost
-        try {
-            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getTodayReturnCost');
-            const data = await response.json();
-            if (data.total_return !== null) {
-                todayReturnCost = data.total_return; // Update the return cost variable
-            }
-        } catch (error) {
-            console.error("Error fetching today's return cost:", error);
-        }
-
-        // Fetch total return cost
-        try {
-            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getTotalReturnCost');
-            const data = await response.json();
-            if (data.total_return_cost !== null) {
-                totalReturnCost = data.total_return_cost; // Update the total return cost variable
-            }
-        } catch (error) {
-            console.error("Error fetching total return cost:", error);
-        }
-
-        // Fetch monthly sales data
-        try {
-            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getMonthlySales');
-            const monthlySales = await response.json();
-            
-            // Prepare data for the sales chart
-            salesData.labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-            salesData.datasets[0].data = Array(12).fill(0); // Initialize data array for 12 months
-
-            // Populate the sales data
-            monthlySales.forEach((sale: MonthlySale) => {
-                salesData.datasets[0].data[sale.month - 1] = sale.total_amount; // Adjust index for 0-based array
-            });
-        } catch (error) {
-            console.error("Error fetching monthly sales:", error);
-        }
-
         // Fetch waiter order counts from your backend
         const responseWaiterOrderCounts = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getWaitersWithOrderCounts');
         const dataWaiterOrderCounts = await responseWaiterOrderCounts.json();
-        waiterOrderCounts = dataWaiterOrderCounts; // Populate the variable with fetched data
+        waiterOrderCounts = dataWaiterOrderCounts.sort((a: { order_count: number }, b: { order_count: number }) => b.order_count - a.order_count); // Sort in descending order
+
+        // Fetch leading staff data
+        try {
+            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getLeadingStaff');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            leadingStaff = await response.json(); // Store the leading staff data
+        } catch (error) {
+            console.error("Error fetching leading staff:", error);
+            leadingStaff = null; // Handle error
+        }
+
+        // Order Takes data from 7 AM to 11 PM
+        const orderLabels = ['7 AM', '8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM'];
+        const orderTakesData = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 80, 60, 40, 20, 10, 5, 2]; // Sample data for each hour
+
+        // Sales data from Monday to Sunday
+        const salesLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const salesData = [5000, 7500, 1000, 6000, 9000, 12000, 8000]; // Sample sales data for each day
+
+        // Initialize the sales chart
+        const canvas = document.getElementById('salesChart') as HTMLCanvasElement;
+        const ctx = canvas?.getContext('2d');
+
+        if (ctx) {
+            const salesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                        labels: orderLabels,
+                        datasets: [{
+                        label: 'Order Takes',
+                        data: orderTakesData,
+                        borderColor: 'rgba(21, 94, 117, 1)',       
+                        backgroundColor: 'rgba(8, 51, 68, 0.3)',   
+                        borderWidth: 4,
+                        pointRadius: 5,
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    return `${tooltipItem.raw} orders`;
+                                }
+                            }
+                        },
+                        legend: {
+                            labels: {
+                                color: 'black'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            console.error("Failed to get canvas context");
+        }
+
+        // Initialize the sales bar chart
+        const barCanvas = document.getElementById('salesBarChart') as HTMLCanvasElement;
+        const barCtx = barCanvas?.getContext('2d');
+
+        if (barCtx) {
+            const salesBarChart = new Chart(barCtx, {
+                type: 'bar', // Changed to bar chart
+                data: {
+                    labels: salesLabels, // Use the same labels
+                    datasets: [{
+                        label: 'Sales',
+                        data: salesData, // Use the same sales data
+                        borderColor: 'rgba(21, 94, 117, 1)',       
+                        backgroundColor: 'rgba(8, 51, 68, 0.3)',  
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        tooltip: {
+                            enabled: true,
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    return `${tooltipItem.raw} sales`;
+                                }
+                            }
+                        },
+                        legend: {
+                            labels: {
+                                color: 'black'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            console.error("Failed to get canvas context for bar chart");
+        }
     });
 
     function printPage() {
         window.print();
-    }
-
-    function handleCategoryChange(event: Event) {
-        selectedCategory = (event.target as HTMLSelectElement).value; // Update selectedCategory with the dropdown value
-        console.log("Selected Category:", selectedCategory);
-        
-        // Fetch and filter data based on selectedCategory
-        fetchDataForCategory(selectedCategory); // Call the new function to fetch data
-    }
-
-    async function fetchDataForCategory(category: string) {
-        const responseMenu = await fetch(`http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getMenuDashboard&label=${category}&label2=${category}`);
-        const menuItems = await responseMenu.json();
-
-        // Populate inventoryData with fetched menu items
-        inventoryData.labels = menuItems.map((item: { title1: string, qty: number }) => `${item.title1}`); // Set labels to title and qty
-        inventoryData.datasets[0].data = menuItems.map((item: { qty: number }) => item.qty); // Set data to qty
-
-        // Set background colors based on qty with a maximum of 30
-        inventoryData.datasets[0].backgroundColor = menuItems.map((item: { qty: number }) => {
-            const quantity = Math.min(item.qty, 30); // Limit quantity to a maximum of 30
-            if (quantity < 10) return 'red'; // Red
-            if (quantity < 20) return 'yellow'; // Yellow
-            return 'green';
-        });
     }
 
     // Modify the delete functions to show confirmation first
@@ -308,6 +277,18 @@
         }
     }
 
+    // Function to open the popup with the clicked cell's data
+    function openPopup(item: any) {
+        popupData = item; // Set the data for the popup
+        showPopup = true; // Show the popup
+    }
+
+    // Function to close the popup
+    function closePopup() {
+        showPopup = false; // Hide the popup
+        popupData = null; // Clear the data
+    }
+
 </script>
 
 <div class="flex h-screen bg-gradient-to-b from-green-500 to-green-700">
@@ -316,7 +297,7 @@
     <!-- Main Content -->
     <div class="flex-grow p-6 bg-gray-100 overflow-auto">
         <!-- Statistics Cards -->
-        <div class="grid grid-cols-8 gap-4 mb-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <div class="bg-white rounded-lg shadow-md p-4 text-center">
                 <div class="text-gray-500">Today's Total Sales</div>
                 <div class="text-3xl font-bold">₱{totalSalesToday}</div>
@@ -333,47 +314,32 @@
             </div>
             <div class="bg-white rounded-lg shadow-md p-4 text-center">
                 <div class="text-gray-500">Best Seller</div>
-                <div class="text-3xl font-bold">{bestSeller || 'N/A'}</div>
+                <div class={`text-xl font-bold ${bestSeller.length > 18 ? 'text-md' : ''}`}>{bestSeller || 'N/A'}</div>
                 <div class="text-green-500">
                     <FontAwesomeIcon icon={faTrophy} />
                 </div>
             </div>
             <div class="bg-white rounded-lg shadow-md p-4 text-center">
                 <div class="text-gray-500">Least Seller</div>
-                <div class="text-3xl font-bold">{leastSeller || 'N/A'}</div>
+                <div class={`text-xl font-bold ${leastSeller.length > 18 ? 'text-md' : ''}`}>{leastSeller || 'N/A'}</div>
                 <div class="text-red-500">
                     <FontAwesomeIcon icon={faArrowDown} />
                 </div>
             </div>
             <div class="bg-white rounded-lg shadow-md p-4 text-center">
-                <div class="text-gray-500">Shortage Cost</div>
-                <div class="text-3xl font-bold">₱{todayShortageCost}</div>
+                <div class="text-gray-500">Order Processing Time</div>
+                <div class="text-3xl font-bold"></div>
                 <div class="text-red-500">
                     <FontAwesomeIcon icon={faExclamationTriangle} />
                 </div>
             </div>
             <div class="bg-white rounded-lg shadow-md p-4 text-center">
-                <div class="text-gray-500">Overall Shortage</div>
-                <div class="text-3xl font-bold">₱{totalShortageCost}</div>
-                <div class="text-red-500">
-                    <FontAwesomeIcon icon={faExclamationTriangle} />
-                </div>
+                <div class="text-gray-500">Leading Waiter Staff</div> 
+                    <div class="text-xl font-bold">{leadingStaff ? `${leadingStaff.firstName} ${leadingStaff.lastName}` : 'N/A'}</div>
+                    <div class="text-green-500">
+                        <FontAwesomeIcon icon={faUser} />
+                    </div>
             </div>
-            <div class="bg-white rounded-lg shadow-md p-4 text-center">
-                <div class="text-gray-500">Return Cost</div> 
-                <div class="text-3xl font-bold">₱{todayReturnCost}</div>
-                <div class="text-red-500">
-                    <FontAwesomeIcon icon={faExclamationCircle} />
-                </div>
-            </div>
-            <div class="bg-white rounded-lg shadow-md p-4 text-center">
-                <div class="text-gray-500">Overall Returns</div>
-                <div class="text-3xl font-bold">₱{totalReturnCost}</div>
-                <div class="text-red-500">
-                    <FontAwesomeIcon icon={faTrashAlt} />
-                </div>
-            </div>
-           
         </div>
 
          <!-- Date Sorter -->
@@ -382,34 +348,15 @@
         <!-- Charts Section -->
         <div class="grid grid-cols-3 gap-2 mb-6">
             <div class="bg-white rounded-lg shadow-lg p-2">
-                <h3 class="text-center font-bold text-sm">Sales Chart</h3>
-               
+                <h3 class="text-center font-bold text-sm">Order Monitor Chart</h3>
+                <canvas id="salesChart" width="400" height="200" style="max-width: 100%;"></canvas>
             </div>
             <div class="bg-white rounded-lg shadow-lg p-2">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="text-center font-bold text-sm">Inventory Chart</h3>
-                    <select class="bg-white text-black border-none shadow-sm focus:outline-none" on:change={handleCategoryChange} value={selectedCategory}>
-                        <option value="Beverages">Beverages</option>
-                        <option value="Food">Food</option>
-                        <option value="Dessert">Dessert</option>
-                        <option value="Coffee">Coffee</option>
-                        <option value="Pasta">Pasta</option>
-                        <option value="Burger">Burger</option>
-                        <option value="Ulam">Ulam</option>
-                    </select>
-                </div>
-                <Bar data={inventoryData} options={{ 
-                    responsive: true, 
-                    scales: {
-                        y: {
-                            max: 30 // Set maximum value for y-axis
-                        }
-                    }
-                }} />
+                <h3 class="text-center font-bold text-sm">Sales Chart</h3>
+                <canvas id="salesBarChart" width="400" height="200" style="max-width: 100%;"></canvas>
             </div>
             <div class="bg-white rounded-lg shadow-lg p-2">
                 <h3 class="text-center font-bold text-sm">Returns Chart</h3>
-                <Bar data={returnData} options={{ responsive: true }} />
             </div>
         </div>
         <!-- Tables Section -->
@@ -426,6 +373,7 @@
                             <th class="p-2 text-center">Date</th>
                             <th class="p-2 text-center">Time</th>
                             <th class="p-2 text-center">Shortage</th>
+                            <th class="p-2 text-center">Code</th>
                             <th class="p-2 text-center">Validate</th>
                             <th class="p-2 text-center">Actions</th>
                         </tr>
@@ -438,12 +386,13 @@
                         {:else}
                             {#each salesRemitItems as item}
                                 <tr class="border-t border-gray-300 hover:bg-gray-200 transition-colors duration-200">
-                                    <td class="p-2 text-center">{item.remit_id}</td>
-                                    <td class="p-2 text-center">{item.cashier_name}</td>
-                                    <td class="p-2 text-center">₱{item.total_sales}.00</td>
-                                    <td class="p-2 text-center">{item.remit_date}</td>
-                                    <td class="p-2 text-center">{item.remit_time}</td>
-                                    <td class="p-2 text-center">₱{item.remit_shortage}.00</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>{item.remit_id}</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>{item.cashier_name}</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>₱{item.total_sales}.00</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>{item.remit_date}</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>{item.remit_time}</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>₱{item.remit_shortage}.00</td>
+                                    <td class="p-2 text-center" on:click={() => openPopup(item)}>{item.remit_code}</td>
                                     <td class="p-2 text-center">
                                         <button class="p-1 {item.remit_validation === "Validated" ? 'bg-green-500' : item.remit_validation === "Pending" ? 'bg-yellow-500' : 'bg-gray-200'} text-white rounded">{item.remit_validation}</button>
                                     </td>
@@ -573,6 +522,52 @@
                     class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
                     on:click={() => itemToDelete && deleteReturn(itemToDelete)}>
                     Delete
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Popup for displaying clicked cell data -->
+{#if showPopup}
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h3 class="text-lg font-bold mb-4 text-center text-gray-800">Order Details</h3>
+            <div class="text-center mb-4">
+                <p class="font-semibold text-gray-700">Cashier: <span class="text-blue-600">{popupData.cashier_name}</span></p>
+                <p class="text-gray-600">Date: {popupData.remit_date}</p>
+                <p class="text-gray-600">Time: {popupData.remit_time}</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-left table-fixed border-collapse mb-4">
+                    <thead class="bg-gray-200">
+                        <tr>
+                            <th class="p-2">Item Name</th>
+                            <th class="p-2">Quantity</th>
+                            <th class="p-2">Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each JSON.parse(popupData.food_summary) as item}
+                            {#each JSON.parse(item.items_ordered) as foodItem}
+                                <tr class="border-b hover:bg-gray-100 transition-colors duration-200">
+                                    <td class="p-2 border-b">{foodItem.order_name}</td>
+                                    <td class="p-2 border-b">{foodItem.order_quantity}</td>
+                                    <td class="p-2 border-b">₱{foodItem.basePrice}</td>
+                                </tr>
+                            {/each}
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
+            <div class="bg-gray-100 p-4 rounded-lg mb-4">
+                <p class="font-bold text-lg">Total Sales: <span class="text-green-600">₱{popupData.total_sales}</span></p>
+            </div>
+            <div class="flex justify-end">
+                <button 
+                    class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-200"
+                    on:click={closePopup}>
+                    Close
                 </button>
             </div>
         </div>

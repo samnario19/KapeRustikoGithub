@@ -38,6 +38,8 @@ Modules:
 - npm install --save-dev @sveltejs/adapter-static
 - npm install --save-dev @tauri-apps/cli
 - composer require phpoffice/phpspreadsheet
+- composer require phpmailer/phpmailer
+- npm install flowbite-svelte
 
 - npm install express
 - npm install mysql

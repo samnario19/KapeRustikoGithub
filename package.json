@@ -4,7 +4,6 @@
 	"private": true,
 	"scripts": {
 		"dev": "vite dev --host",
-		"start:dev": "start start_apache.bat && vite dev --host",
 		"build": "vite build --outDir build",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -26,7 +25,7 @@
 		"eslint": "^9.0.0",
 		"eslint-config-prettier": "^9.1.0",
 		"eslint-plugin-svelte": "^2.36.0",
-		"flowbite-svelte": "^0.47.3",
+		"flowbite-svelte": "^0.47.4",
 		"globals": "^15.0.0",
 		"postcss": "^8.4.47",
 		"prettier": "^3.1.1",
@@ -56,8 +55,7 @@
 		"font-awesome": "^4.7.0",
 		"mysql": "^2.18.1",
 		"svelte-chartjs": "^3.1.5",
-		"svelte-routing": "^2.13.0",
-		"xlsx": "^0.18.5"
+		"svelte-routing": "^2.13.0"
 	},
 	"description": "Members:\r - Dayandante, Michael D.\r - Biaculo, Richard Angelo\r - Nario, Nandy",
 	"main": "eslint.config.js",

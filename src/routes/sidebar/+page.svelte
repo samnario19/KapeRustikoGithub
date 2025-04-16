@@ -259,17 +259,6 @@
             {/if}
         </button>
     </div>
-    <div class="flex items-center p-4 hover:bg-cyan-600 justify-center" class:bg-white={isActive.addWaiter} class:rounded-[4px]={isActive.addWaiter} class:ml-[5px]={isActive.addWaiter} class:mr-[5px]={isActive.addWaiter} class:h-[50px]={isActive.addWaiter}>
-        <button type="button" on:click={openAddWaiterPopup} class="flex items-center justify-center">
-            {#if sidebarWidth === 'w-[220px]'}
-                <span class:text-cyan-950={isActive.addWaiter} class:text-white={!isActive.addWaiter} class="text-2xl font-bold">Add Waiter</span>
-            {:else}
-                <span class:text-white={!isActive.addWaiter}>
-                    <FontAwesomeIcon icon={faUserPlus} class="text-3xl" />
-                </span>
-            {/if}
-        </button>
-    </div>
     <div class="flex items-center p-4 hover:bg-green-600 justify-center" role="button" tabindex="0" on:click={() => window.location.reload()} on:keydown={(e) => e.key === 'Enter' && window.location.reload()}>
         {#if sidebarWidth === 'w-[220px]'}
             <span class="text-white text-2xl font-bold">Reload</span>
@@ -320,46 +309,6 @@
                 <button class="w-full bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition duration-200" on:click={closeSecondPopup}>Cancel</button>
                 <button class="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition duration-200" on:click={() => currentIcon && confirmAuth(currentIcon)}>Confirm</button>
                
-            </div>
-        </div>
-    </div>
-{/if}
-<!-- Popup for Adding Waiter -->
-{#if showAddWaiterPopup}
-    <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full z-50">
-            <h3 class="text-xl font-bold text-gray-800">Add Waiter</h3>
-            <input
-                type="text"
-                bind:value={firstName}
-                class="w-full rounded border border-gray-300 p-2 mt-2"
-                placeholder="Enter Waiter's First Name"
-            />
-            <input
-                type="text"
-                bind:value={middleName}
-                class="w-full rounded border border-gray-300 p-2 mt-2"
-                placeholder="Enter Waiter's Middle Name"
-            />
-            <input
-                type="text"
-                bind:value={lastName}
-                class="w-full rounded border border-gray-300 p-2 mt-2"
-                placeholder="Enter Waiter's Last Name"
-            />
-            <div class="mt-2">
-                <label for="waiterCode" class="block text-gray-700">Waiter Code:</label>
-                <input
-                    id="waiterCode"
-                    type="text"
-                    value={waiterCode}
-                    class="w-full rounded border border-gray-300 p-2 mt-2"
-                    readonly
-                />
-            </div>
-            <div class="flex justify-between mt-4 space-x-2">
-                <button class="w-full bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition duration-200" on:click={closeAddWaiterPopup}>Cancel</button>
-                <button class="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition duration-200" on:click={submitAddWaiter}>Add Waiter</button>
             </div>
         </div>
     </div>
