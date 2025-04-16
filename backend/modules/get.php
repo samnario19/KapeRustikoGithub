@@ -259,10 +259,10 @@ function getRemitReturns($conn)
 function getRemitSales($conn)
 {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        if (isset($_GET['date'])) {
-            $date = $_GET['date'];
-            $stmt = $conn->prepare("SELECT * FROM remit_sales WHERE remit_date = ?");
-            $stmt->bind_param("s", $date);
+        if (isset($_GET['remit_code'])) {
+            $remit_code = $_GET['remit_code'];
+            $stmt = $conn->prepare("SELECT * FROM remit_sales WHERE remit_code = ?");
+            $stmt->bind_param("s", $remit_code);
         } else {
             $stmt = $conn->prepare("SELECT * FROM remit_sales");
         }
@@ -301,8 +301,8 @@ function getReturnOrders($conn)
 // Function to get sales information
 function getSalesInformation($conn)
 {
-    $date = isset($_GET['date']) ? $_GET['date'] : null;
-    $query = "SELECT * FROM total_sales" . ($date ? " WHERE date = '$date'" : "");
+    $sales_code = isset($_GET['sales_code']) ? $_GET['sales_code'] : null; // Retrieve sales_code from query parameters
+    $query = "SELECT * FROM total_sales" . ($sales_code ? " WHERE sales_code = '$sales_code'" : ""); // Update query to filter by sales_code
     $result = $conn->query($query);
     if ($result->num_rows > 0) {
         $salesData = $result->fetch_all(MYSQLI_ASSOC);
@@ -310,6 +310,21 @@ function getSalesInformation($conn)
     } else {
         echo json_encode(["message" => "No sales data found"]);
     }
+}
+
+function getSalesInformationByDate($conn) {
+    $sales_code = isset($_GET['sales_code']) ? $_GET['sales_code'] : null;
+    $date = isset($_GET['date']) ? $_GET['date'] : null;
+    $sql = "SELECT * FROM total_sales WHERE date = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $date);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $salesData = [];
+    while ($row = $result->fetch_assoc()) {
+        $salesData[] = $row;
+    }
+    echo json_encode($salesData);
 }
 
 // Function to get today's sales
@@ -727,20 +742,209 @@ function getWaiterByCode($conn)
 // Function to get waiters with order counts
 function getWaitersWithOrderCounts($conn)
 {
-    $sql = "SELECT us.firstName, us.lastName, COUNT(o.que_order_no) AS order_count
-            FROM `user-staff` us
-            LEFT JOIN que_orders o ON us.waiter_code = o.waiter_code
-            WHERE us.waiter_code IS NOT NULL AND us.waiter_code != ''
-            GROUP BY us.staff_no"; // Group by staff_no to get unique waiters
+    $sql = "SELECT firstName, lastName, order_count FROM `user-staff`"; // Query to get first name, last name, and order count
     $result = $conn->query($sql);
     
-    $waiters = [];
+    if ($result->num_rows > 0) {
+        $waiters = [];
+        while ($row = $result->fetch_assoc()) {
+            $waiters[] = $row; // Collect each waiter's data
+        }
+        echo json_encode($waiters); // Return the data as JSON
+    } else {
+        echo json_encode(["message" => "No waiters found."]); // Handle case with no waiters
+    }
+}
+
+// Function to get waiter code by email
+function getWaiterCodeByEmail($conn)
+{
+    $email = isset($_GET['email']) ? $_GET['email'] : ''; // Retrieve email from query parameters
+    $query = "SELECT waiter_code FROM `user-staff` WHERE email = ?"; // Query to get waiter_code by email
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        $waiterData = $result->fetch_assoc();
+        echo json_encode($waiterData); // Return the waiter_code as JSON
+    } else {
+        echo json_encode(["error" => "Email not found."]); // Return an error if no waiter is found
+    }
+    
+    $stmt->close();
+}
+
+// Function to get leading staff
+function getLeadingStaff($conn) {
+    $sql = "SELECT firstName, lastName, order_count FROM `user-staff` ORDER BY order_count DESC LIMIT 1"; // Query to get the staff with the highest order count
+    $result = $conn->query($sql);
+    
+    if ($result && $result->num_rows > 0) {
+        $leadingStaff = $result->fetch_assoc(); // Fetch the leading staff data
+        echo json_encode($leadingStaff); // Return the leading staff as JSON
+    } else {
+        echo json_encode(["message" => "No staff found."]); // Handle case with no staff
+    }
+}
+
+// Function to get all data of a user
+function getAllDataOfUser($conn)
+{
+    $sql = "SELECT * FROM `user-staff`"; // Query to select all user data
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        $userData = $result->fetch_all(MYSQLI_ASSOC); // Fetch all user data as an associative array
+        echo json_encode($userData); // Return user data as JSON
+    } else {
+        echo json_encode(["error" => "User not found."]); // Return an error if no user is found
+    }
+    
+    $stmt->close();
+}
+
+// Function to verify the reset code
+function verifyResetCode($conn, $code) {
+    // Prepare the SQL statement to prevent SQL injection
+    $stmt = $conn->prepare("SELECT * FROM `user-staff` WHERE waiter_code = ?");
+    $stmt->bind_param("s", $code);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        // Code exists
+        echo json_encode(["status" => "success", "message" => "Code verified successfully."]);
+    } else {
+        // Code does not exist
+        echo json_encode(["error" => "Invalid code. Please try again."]);
+    }
+
+    $stmt->close();
+}
+
+// Function to get all data from total_sales
+function getAllTotalSales($conn)
+{
+    $sql = "SELECT DISTINCT date, sales_code FROM total_sales"; // Query to select unique dates and sales codes
+    $result = $conn->query($sql);
+    
+    if ($result->num_rows > 0) {
+        $salesData = $result->fetch_all(MYSQLI_ASSOC); // Fetch all unique sales data as an associative array
+        echo json_encode($salesData); // Return unique sales data as JSON
+    } else {
+        echo json_encode(["message" => "No sales data found."]); // Handle case with no data
+    }
+}
+
+// Function to get sales by date and shift
+function getSalesByDateAndShift($conn)
+{
+    $date = isset($_GET['date']) ? $_GET['date'] : null; // Retrieve date from query parameters
+    $shift = isset($_GET['shift']) ? $_GET['shift'] : null; // Retrieve shift from query parameters
+
+    if ($date && $shift) {
+        // Update SQL query to calculate the sum of total_amount for the specified date and shift
+        $sql = "SELECT SUM(total_amount) AS total_sales FROM total_sales WHERE date = ? AND cashier_shift = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ss", $date, $shift);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($row = $result->fetch_assoc()) {
+            echo json_encode(['total_sales' => $row['total_sales']]);
+        } else {
+            echo json_encode(['total_sales' => 0]); // Return 0 if no sales found
+        }
+    } else {
+        echo json_encode(["error" => "Date and shift parameters are required."]);
+    }
+    $stmt->close();
+}
+
+// Function to get total sales by code
+function getTotalSalesByCode($conn)
+{
+    $sales_code = isset($_GET['sales_code']) ? $_GET['sales_code'] : null; // Retrieve sales_code from query parameters
+    if ($sales_code) {
+        $sql = "SELECT * FROM total_sales WHERE sales_code = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $sales_code);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $salesData = [];
+        while ($row = $result->fetch_assoc()) {
+            $salesData[] = $row;
+        }
+        echo json_encode($salesData);
+    } else {
+        echo json_encode(["error" => "Sales code parameter is required."]);
+    }
+    $stmt->close();
+}
+
+// Function to get total sales by date
+function getTotalSalesByDate($conn)
+{
+    $date = isset($_GET['date']) ? $_GET['date'] : null; // Retrieve date from query parameters
+    if ($date) {
+        $sql = "SELECT SUM(total_amount) AS total_sales FROM total_sales WHERE date = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($row = $result->fetch_assoc()) {
+            echo json_encode(['total_sales' => $row['total_sales']]);
+        } else {
+            echo json_encode(['total_sales' => 0]); // Return 0 if no sales found
+        }
+    } else {
+        echo json_encode(["error" => "Date parameter is required."]);
+    }
+    $stmt->close();
+}
+
+// Function to get order counts by hour
+function getOrderCountsByHour($conn)
+{
+    $sql = "SELECT HOUR(date) AS hour, COUNT(*) AS order_count FROM total_sales GROUP BY hour ORDER BY hour";
+    $result = $conn->query($sql);
+    $orderCounts = array_fill(0, 24, 0); // Initialize an array for 24 hours
+
     if ($result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
-            $waiters[] = $row; // Add each waiter to the array
+            $orderCounts[(int)$row['hour']] = (int)$row['order_count']; // Store counts by hour
         }
     }
-    echo json_encode($waiters); // Return the data as JSON
+    echo json_encode($orderCounts); // Return the order counts as JSON
+}
+
+// Function to get sales information by sales code and date
+function getSalesInformationByCodeAndDate($conn) {
+    $sales_code = isset($_GET['sales_code']) ? $_GET['sales_code'] : null;
+    $date = isset($_GET['date']) ? $_GET['date'] : null;
+
+    if ($sales_code && $date) {
+        // Log the values for debugging
+        error_log("Sales Code: $sales_code, Date: $date");
+
+        $stmt = $conn->prepare("SELECT * FROM total_sales WHERE sales_code = ? AND date = ?");
+        $stmt->bind_param("ss", $sales_code, $date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $salesData = [];
+        while ($row = $result->fetch_assoc()) {
+            $salesData[] = $row;
+        }
+        echo json_encode($salesData);
+    } else {
+        echo json_encode(["error" => "Sales code and date are required."]);
+    }
 }
 
 // Route handling based on request type
@@ -781,6 +985,12 @@ switch ($requestMethod) {
                     break;
                 case 'getSalesInformation':
                     getSalesInformation($conn);
+                    break;
+                case 'getSalesInformationByDate':
+                    getSalesInformationByDate($conn);
+                    break;
+                case 'getSalesInformationByCodeAndDate':
+                    getSalesInformationByCodeAndDate($conn);
                     break;
                 case 'getTodaySales':
                     getTodaySales($conn);
@@ -838,6 +1048,38 @@ switch ($requestMethod) {
                     break;
                 case 'getWaitersWithOrderCounts':
                     getWaitersWithOrderCounts($conn);
+                    break;
+                case 'getWaiterCodeByEmail':
+                    getWaiterCodeByEmail($conn);
+                    break;
+                case 'getAllDataOfUser':
+                    getAllDataOfUser($conn);
+                    break;
+                case 'getLeadingStaff':
+                    getLeadingStaff($conn);
+                    break;
+                case 'verifyResetCode':
+                    if (isset($_GET['code'])) {
+                        $code = $_GET['code'];
+                        verifyResetCode($conn, $code);
+                    } else {
+                        echo json_encode(["error" => "Code parameter is missing."]);
+                    }
+                    break;
+                case 'getAllTotalSales':
+                    getAllTotalSales($conn);
+                    break;
+                case 'getSalesByDateAndShift':
+                    getSalesByDateAndShift($conn);
+                    break;
+                case 'getTotalSalesByCode':
+                    getTotalSalesByCode($conn);
+                    break;
+                case 'getTotalSalesByDate':
+                    getTotalSalesByDate($conn);
+                    break;
+                case 'getOrderCountsByHour':
+                    getOrderCountsByHour($conn);
                     break;
                 default:
                     echo json_encode(["status" => "error", "message" => "Invalid action"]);

@@ -94,73 +94,6 @@ switch ($requestMethod) {
                         echo json_encode(["success" => false, "message" => "No receipt number provided"]);
                     }
                     break;
-
-                case 'voidIndividualItem':
-                    $receipt_number = $_GET['receipt_number'] ?? null;
-                    $item_index = $_GET['item_index'] ?? null;
-                    
-                    if (!$receipt_number || !isset($item_index)) {
-                        http_response_code(400);
-                        echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
-                        exit;
-                    }
-
-                    // Get the current order details
-                    $query = "SELECT items_ordered FROM que_orders WHERE receipt_number = ?";
-                    $stmt = $conn->prepare($query);
-                    $stmt->bind_param("s", $receipt_number);
-                    $stmt->execute();
-                    $result = $stmt->get_result();
-                    
-                    if ($row = $result->fetch_assoc()) {
-                        $items = json_decode($row['items_ordered'], true);
-                        
-                        // Check if the item index exists
-                        if (isset($items[$item_index])) {
-                            // Remove the specific item
-                            array_splice($items, $item_index, 1);
-                            
-                            if (empty($items)) {
-                                // If no items left, delete the entire order
-                                $delete_query = "DELETE FROM que_orders WHERE receipt_number = ?";
-                                $delete_stmt = $conn->prepare($delete_query);
-                                $delete_stmt->bind_param("s", $receipt_number);
-                                $success = $delete_stmt->execute();
-                                
-                                if ($success) {
-                                    echo json_encode(['success' => true, 'message' => 'Order deleted successfully']);
-                                } else {
-                                    http_response_code(500);
-                                    echo json_encode(['success' => false, 'message' => 'Failed to delete order']);
-                                }
-                                $delete_stmt->close();
-                            } else {
-                                // Update the order with remaining items
-                                $updated_items = json_encode($items);
-                                $update_query = "UPDATE que_orders SET items_ordered = ? WHERE receipt_number = ?";
-                                $update_stmt = $conn->prepare($update_query);
-                                $update_stmt->bind_param("ss", $updated_items, $receipt_number);
-                                $success = $update_stmt->execute();
-                                
-                                if ($success) {
-                                    echo json_encode(['success' => true, 'message' => 'Item voided successfully']);
-                                } else {
-                                    http_response_code(500);
-                                    echo json_encode(['success' => false, 'message' => 'Failed to update order']);
-                                }
-                                $update_stmt->close();
-                            }
-                        } else {
-                            http_response_code(404);
-                            echo json_encode(['success' => false, 'message' => 'Item not found']);
-                        }
-                    } else {
-                        http_response_code(404);
-                        echo json_encode(['success' => false, 'message' => 'Order not found']);
-                    }
-                    
-                    $stmt->close();
-                    break;
             }
         } else {
             echo json_encode(["status" => "error", "message" => "No action specified"]);
@@ -278,42 +211,15 @@ function delete_voucher($conn) {
 function deleteTableOccupancy($conn) {
     $table_number = $_GET['table_number'] ?? null;
     if ($table_number) {
-        // Validate table number format
-        if (!validateTableNumber($table_number)) {
-            echo json_encode(["success" => false, "message" => "Invalid table number format"]);
-            return;
-        }
-
         $stmt = $conn->prepare("DELETE FROM que_orders WHERE table_number = ?");
-        $stmt->bind_param("s", $table_number);
-        
+        $stmt->bind_param("i", $table_number);
         if ($stmt->execute()) {
             echo json_encode(["success" => true, "message" => "Table occupancy deleted successfully."]);
         } else {
             echo json_encode(["success" => false, "message" => "Error deleting table occupancy: " . $stmt->error]);
         }
-        
         $stmt->close();
     } else {
         echo json_encode(["success" => false, "message" => "No table number provided."]);
     }
-}
-
-function validateTableNumber($table_number) {
-    // Check if it's an indoor table (1-20)
-    if (is_numeric($table_number) && $table_number >= 1 && $table_number <= 20) {
-        return true;
-    }
-    
-    // Check if it's an outdoor table (O1-O15)
-    if (preg_match('/^O([1-9]|1[0-5])$/', $table_number)) {
-        return true;
-    }
-    
-    // Check if it's a garden table (G1-G6)
-    if (preg_match('/^G[1-6]$/', $table_number)) {
-        return true;
-    }
-    
-    return false;
 }

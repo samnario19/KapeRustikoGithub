@@ -115,7 +115,7 @@ if ($requestMethod === 'POST') {
     // Handle saving receipt
     if (isset($data['receiptNumber'])) {
         // Check if the data is valid and contains the required keys
-        if (!isset($data['date'], $data['time'], $data['cashierName'], $data['itemsOrdered'], $data['totalAmount'], $data['amountPaid'], $data['change'], $data['order_take'], $data['table_number'])) {
+        if (!isset($data['date'], $data['time'], $data['cashierName'], $data['itemsOrdered'], $data['totalAmount'], $data['amountPaid'], $data['change'], $data['order_take'], $data['table_number'], $data['cashier_shift'], $data['sales_code'], $data['service_charge'], $data['waiter_name'])) {
             echo json_encode(["error" => "Invalid input data"]);
             exit; // Stop execution if input is invalid
         }
@@ -129,12 +129,17 @@ if ($requestMethod === 'POST') {
         $amountPaid = isset($data['amountPaid']) ? $data['amountPaid'] : 0; // Default to 0 if not set
         $change = isset($data['change']) ? $data['change'] : 0; // Default to 0 if not set
         $orderTake = $data['order_take'];
+        
         $tableNumber = $data['table_number']; // New variable for table number
         $orderStatus = "pending"; // Default order status
+        $cashierShift = $data['cashier_shift']; // New variable for cashier shift
+        $salesCode = $data['sales_code']; // New variable for sales code
+        $serviceCharge = $data['service_charge']; // New variable for service charge
+        $waiterName = $data['waiter_name']; // New variable for waiter name
 
         // Prepare and execute the insert statement for total_sales
-        $stmt = $conn->prepare("INSERT INTO total_sales (receipt_number, date, time, cashier_name, items_ordered, total_amount, amount_paid, amount_change, order_take, table_number, order_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("issssiiisis", $receiptNumber, $date, $time, $cashierName, $itemsOrderedJson, $totalAmount, $amountPaid, $change, $orderTake, $tableNumber, $orderStatus);
+        $stmt = $conn->prepare("INSERT INTO total_sales (receipt_number, date, time, cashier_name, items_ordered, total_amount, amount_paid, amount_change, order_take, table_number, order_status, cashier_shift, sales_code, service_charge, waiter_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("issssiiisssssis", $receiptNumber, $date, $time, $cashierName, $itemsOrderedJson, $totalAmount, $amountPaid, $change, $orderTake, $tableNumber, $orderStatus, $cashierShift, $salesCode, $serviceCharge, $waiterName);
 
         // Execute the statement
         if ($stmt->execute()) {
@@ -145,76 +150,22 @@ if ($requestMethod === 'POST') {
         $stmt->close();
     }
 
-    function validateTableNumber($table_number) {
-        // Check if it's an indoor table (1-20)
-        if (is_numeric($table_number) && $table_number >= 1 && $table_number <= 20) {
-            return true;
-        }
-        
-        // Check if it's an outdoor table (O1-O15)
-        if (preg_match('/^O([1-9]|1[0-5])$/', $table_number)) {
-            return true;
-        }
-        
-        // Check if it's a garden table (G1-G6)
-        if (preg_match('/^G[1-6]$/', $table_number)) {
-            return true;
-        }
-        
-        return false;
-    }
 
     // Handle table reservation
-    if (isset($_GET['action']) && $_GET['action'] === 'reserve_date') {
-        $data = json_decode(file_get_contents("php://input"), true);
-        
-        if (!isset($data['reserve_date'], $data['reserve_time'], $data['table_number'])) {
-            echo json_encode(["error" => "Missing required fields"]);
-            exit;
-        }
-        
-        $table_number = $data['table_number'];
-        
-        // Validate table number format
-        if (!validateTableNumber($table_number)) {
-            echo json_encode(["error" => "Invalid table number format"]);
-            exit;
-        }
-        
-        // Check if table is already reserved
-        $check_sql = "SELECT * FROM reserve_table WHERE table_number = ?";
-        $check_stmt = $conn->prepare($check_sql);
-        $check_stmt->bind_param("s", $table_number);
-        $check_stmt->execute();
-        $check_result = $check_stmt->get_result();
-        
-        if ($check_result->num_rows > 0) {
-            echo json_encode(["error" => "Table is already reserved"]);
-            exit;
-        }
-        
-        // Check if table is occupied
-        $occupied_sql = "SELECT * FROM que_orders WHERE table_number = ?";
-        $occupied_stmt = $conn->prepare($occupied_sql);
-        $occupied_stmt->bind_param("s", $table_number);
-        $occupied_stmt->execute();
-        $occupied_result = $occupied_stmt->get_result();
-        
-        if ($occupied_result->num_rows > 0) {
-            echo json_encode(["error" => "Table is currently occupied"]);
-            exit;
-        }
-        
-        // Insert reservation
+    if (isset($data['reserve_date'])) {
         $stmt = $conn->prepare("INSERT INTO reserve_table (reserve_date, reserve_time, table_number) VALUES (?, ?, ?)");
-        $stmt->bind_param("sss", $data['reserve_date'], $data['reserve_time'], $table_number);
-        
+        $stmt->bind_param("ssi", 
+            $data['reserve_date'], 
+            $data['reserve_time'], 
+            $data['table_number']
+        );
+
+        // Execute the statement
         if ($stmt->execute()) {
-            echo json_encode(["success" => true, "message" => "Table reserved successfully"]);
+            echo json_encode(["success" => true, "message" => "Table reserved successfully."]);
         } else {
-            echo json_encode(["error" => "Failed to reserve table"]);
+            echo json_encode(["success" => false, "error" => $stmt->error]);
         }
-        
         $stmt->close();
     }
 
