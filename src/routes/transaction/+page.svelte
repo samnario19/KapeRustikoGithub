@@ -766,6 +766,15 @@
         }
     }
 
+    function formatTime(time: string): string {
+        const [hours, minutes, seconds] = time.split(':');
+        const formattedHours = parseInt(hours) % 12 || 12;
+        const formattedMinutes = minutes;
+        const formattedSeconds = seconds;
+        const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM';
+        return `${formattedHours}:${formattedMinutes}:${formattedSeconds} ${ampm}`;
+    }
+
 </script>
   
 <div class="flex h-screen bg-gradient-to-b from-green-500 to-green-700">
@@ -856,7 +865,7 @@
                         <td class="p-3 text-center border-b">{sale.payAmount}</td>
                         <td class="p-3 text-center border-b">{sale.changeDue}</td>
                         <td class="p-3 text-center border-b">{new Date(sale.orderDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</td>
-                        <td class="p-3 text-center border-b">{sale.orderTime}</td>
+                        <td class="p-3 text-center border-b">{formatTime(sale.orderTime)}</td>
                         <td class="p-3 text-center border-b">{sale.orderIn}</td>
                         <td class="p-3 text-center border-b">{sale.name}</td>
                         <td class="p-3 text-center border-b">{sale.waiterName}</td>

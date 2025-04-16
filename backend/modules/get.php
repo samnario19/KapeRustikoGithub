@@ -909,19 +909,34 @@ function getTotalSalesByDate($conn)
 }
 
 // Function to get order counts by hour
-function getOrderCountsByHour($conn)
+function getOrderTime($conn)
 {
-    $sql = "SELECT HOUR(date) AS hour, COUNT(*) AS order_count FROM total_sales GROUP BY hour ORDER BY hour";
+    // Extract hour and count the number of orders for each hour
+    $sql = "SELECT HOUR(time) AS hour, COUNT(*) AS count 
+            FROM total_sales 
+            WHERE HOUR(time) BETWEEN 7 AND 23
+            GROUP BY HOUR(time)";
+    
     $result = $conn->query($sql);
-    $orderCounts = array_fill(0, 24, 0); // Initialize an array for 24 hours
+    $orderCounts = [];
 
+    // Initialize all hours from 7 to 23 to zero
+    for ($i = 7; $i <= 23; $i++) {
+        $orderCounts[$i] = 0;
+    }
+
+    // Fill actual counts from database results
     if ($result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
-            $orderCounts[(int)$row['hour']] = (int)$row['order_count']; // Store counts by hour
+            $hour = (int)$row['hour'];
+            $orderCounts[$hour] = (int)$row['count'];
         }
     }
-    echo json_encode($orderCounts); // Return the order counts as JSON
+
+    // Return counts as JSON
+    echo json_encode($orderCounts);
 }
+
 
 // Function to get sales information by sales code and date
 function getSalesInformationByCodeAndDate($conn) {
@@ -1078,8 +1093,8 @@ switch ($requestMethod) {
                 case 'getTotalSalesByDate':
                     getTotalSalesByDate($conn);
                     break;
-                case 'getOrderCountsByHour':
-                    getOrderCountsByHour($conn);
+                case 'getOrderTime':
+                    getOrderTime($conn);
                     break;
                 default:
                     echo json_encode(["status" => "error", "message" => "Invalid action"]);

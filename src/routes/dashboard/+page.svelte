@@ -3,14 +3,28 @@
     import { FontAwesomeIcon } from "@fortawesome/svelte-fontawesome";
     import { faStar, faUndo, faExclamationTriangle, faTrash, faDollarSign, faPrint, faArrowDown, faChartBar, faTrophy, faExclamationCircle, faTrashAlt, faUser } from "@fortawesome/free-solid-svg-icons";
     import Sidebar from "../sidebar/+page.svelte";
-    import { Chart, LineController, LineElement, PointElement, LinearScale, Title, Tooltip, Legend, CategoryScale, Filler, BarController, BarElement } from 'chart.js';
+    import { Chart, LineController, LineElement, PointElement, LinearScale, Title, Tooltip, Legend, CategoryScale, Filler, BarController, BarElement, ArcElement, DoughnutController } from 'chart.js';
 
     // Register the necessary components
-    Chart.register(LineController, LineElement, PointElement, LinearScale, Title, Tooltip, Legend, CategoryScale, Filler, BarController, BarElement);
+    Chart.register(
+        LineController,
+        LineElement,
+        PointElement,
+        LinearScale,
+        Title,
+        Tooltip,
+        Legend,
+        CategoryScale,
+        Filler,
+        BarController,
+        BarElement,
+        ArcElement,
+        DoughnutController
+    );
 
     let salesRemitItems: any[] = [];
     let returnItems: any[] = [];
-
+    let orderTakesData: number[] = []; // Declare orderTakesData
 
     let totalSalesToday = 0; // Variable to store today's total sales
     let overallTotalSales: number = 0; // Variable to store overall total sales
@@ -108,13 +122,23 @@
             leadingStaff = null; // Handle error
         }
 
-        // Order Takes data from 7 AM to 11 PM
+        // Order Takes data labeled by hour
         const orderLabels = ['7 AM', '8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM'];
-        const orderTakesData = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 80, 60, 40, 20, 10, 5, 2]; // Sample data for each hour
 
-        // Sales data from Monday to Sunday
-        const salesLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        const salesData = [5000, 7500, 1000, 6000, 9000, 12000, 8000]; // Sample sales data for each day
+        // Fetch order counts by hour
+        try {
+            const response = await fetch('http://localhost/kaperustiko-possystem/backend/modules/get.php?action=getOrderTime');
+            const orderCounts = await response.json();
+            console.log("Fetched order counts:", orderCounts); // Log the fetched data
+            
+            // Map the order counts to the orderTakesData array
+            orderTakesData = orderLabels.map((label, index) => {
+                const hourIndex = index + 7; // Adjust index to match 24-hour format starting from 7 AM
+                return orderCounts[hourIndex] || 0; // Use the correct hour index
+            });
+        } catch (error) {
+            console.error("Error fetching order counts by hour:", error);
+        }
 
         // Initialize the sales chart
         const canvas = document.getElementById('salesChart') as HTMLCanvasElement;
@@ -124,8 +148,8 @@
             const salesChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                        labels: orderLabels,
-                        datasets: [{
+                    labels: orderLabels,
+                    datasets: [{
                         label: 'Order Takes',
                         data: orderTakesData,
                         borderColor: 'rgba(21, 94, 117, 1)',       
@@ -172,6 +196,11 @@
         } else {
             console.error("Failed to get canvas context");
         }
+
+         // Sales data from Monday to Sunday
+        const salesLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const salesData = [5000, 7500, 1000, 6000, 9000, 12000, 8000]; // Sample sales data for each day
+
 
         // Initialize the sales bar chart
         const barCanvas = document.getElementById('salesBarChart') as HTMLCanvasElement;
@@ -224,6 +253,49 @@
             });
         } else {
             console.error("Failed to get canvas context for bar chart");
+        }
+
+        // Sample data for pie chart
+        const pieChartData = {
+            labels: ['Takeout', 'Dine-in'],
+            datasets: [{
+                data: [30, 70], // Example data
+                backgroundColor: ['rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)'],
+                hoverOffset: 4
+            }]
+        };
+
+        console.log(pieChartData);
+
+        // Initialize the customers pie chart
+        const pieCanvas = document.getElementById('customersPieChart') as HTMLCanvasElement;
+        const pieCtx = pieCanvas?.getContext('2d');
+
+        if (pieCtx) {
+            const customersPieChart = new Chart(pieCtx, {
+                type: 'doughnut', // Use 'doughnut' for the pie chart
+                data: pieChartData,
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                color: 'black'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    return `${tooltipItem.label}: ${tooltipItem.raw}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            console.error("Failed to get canvas context for pie chart");
         }
     });
 
@@ -356,7 +428,8 @@
                 <canvas id="salesBarChart" width="400" height="200" style="max-width: 100%;"></canvas>
             </div>
             <div class="bg-white rounded-lg shadow-lg p-2">
-                <h3 class="text-center font-bold text-sm">Returns Chart</h3>
+                <h3 class="text-center font-bold text-sm">Total Customers</h3>
+                <canvas id="customersPieChart" class="small-canvas"></canvas>
             </div>
         </div>
         <!-- Tables Section -->
@@ -573,4 +646,13 @@
         </div>
     </div>
 {/if}
+
+<style>
+    .small-canvas {
+        width: 280px !important; /* Set a specific width */
+        height: 280px !important; /* Set a specific height */
+        margin: 0 auto; /* Center the canvas */
+    }
+
+</style>
   

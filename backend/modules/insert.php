@@ -122,7 +122,7 @@ if ($requestMethod === 'POST') {
 
         $receiptNumber = $data['receiptNumber'];
         $date = $data['date'];
-        $time = $data['time'];
+        $time = date('H:i:s', strtotime($data['time'])); // Convert to 24-hour format
         $cashierName = $data['cashierName'];
         $itemsOrderedJson = json_encode($data['itemsOrdered']); // Encode modified itemsOrdered
         $totalAmount = $data['totalAmount'];
